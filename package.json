@@ -1,6 +1,6 @@
 {
   "name": "offmute",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "author": "Hrishi Olickel <twitter-@hrishioa> (https://olickel.com)",
   "repository": {
     "type": "git",
@@ -15,7 +15,6 @@
     "@swc/core": "^1.7.40",
     "@types/bun": "^1.1.12",
     "@types/node": "^22.8.4",
-    "tsc": "^2.0.4",
     "tsup": "^8.3.5",
     "typescript": "^5.6.3"
   },
@@ -44,6 +43,7 @@
   "types": "./dist/index.d.cts",
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "chalk": "^5.3.0",
     "cli-progress": "^3.12.0",
     "commander": "^12.1.0",
     "fluent-ffmpeg": "^2.1.3"
