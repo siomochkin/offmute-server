@@ -72,10 +72,10 @@ Options:
 
 ### Processing Tiers
 
-- **First Tier** (`first`): Pro models for all operations
-- **Business Tier** (`business`): Pro for description, Flash for transcription
-- **Economy Tier** (`economy`): Flash models for all operations
-- **Budget Tier** (`budget`): Flash for description, 8B for transcription
+- **First Tier** (`first`): Uses Gemini 2.0 Pro models for all operations
+- **Business Tier** (`business`): Gemini 2.0 Pro for description and report, Gemini 2.0 Flash for transcription
+- **Economy Tier** (`economy`): Gemini 2.0 Flash models for all operations
+- **Budget Tier** (`budget`): Gemini 2.0 Flash for description, Gemini 2.0 Flash Lite for transcription and report
 
 ### As a Module
 
@@ -88,14 +88,14 @@ import {
 
 // Generate description and transcription
 const description = await generateDescription(inputFile, {
-  screenshotModel: "gemini-1.5-pro",
-  audioModel: "gemini-1.5-pro",
-  mergeModel: "gemini-1.5-pro",
+  screenshotModel: "gemini-2.0-pro-exp-02-05",
+  audioModel: "gemini-2.0-pro-exp-02-05",
+  mergeModel: "gemini-2.0-pro-exp-02-05",
   showProgress: true,
 });
 
 const transcription = await generateTranscription(inputFile, description, {
-  transcriptionModel: "gemini-1.5-pro",
+  transcriptionModel: "gemini-2.0-pro-exp-02-05",
   showProgress: true,
 });
 
@@ -104,7 +104,7 @@ const report = await generateReport(
   description.finalDescription,
   transcription.chunkTranscriptions.join("\n\n"),
   {
-    model: "gemini-1.5-pro",
+    model: "gemini-2.0-pro-exp-02-05",
     reportName: "meeting_summary",
     showProgress: true,
   }
