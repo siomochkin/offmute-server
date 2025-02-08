@@ -13,28 +13,28 @@ import { checkFFmpeg } from "./utils/ffmpeg-check";
 
 const MODEL_TIERS = {
   first: {
-    description: "gemini-1.5-pro",
-    transcription: "gemini-1.5-pro",
-    report: "gemini-1.5-pro",
+    description: "gemini-2.0-pro-exp-02-05",
+    transcription: "gemini-2.0-pro-exp-02-05",
+    report: "gemini-2.0-pro-exp-02-05",
     label: "First Tier (Pro models)",
   },
   business: {
-    description: "gemini-1.5-pro",
-    transcription: "gemini-1.5-flash",
-    report: "gemini-1.5-pro",
+    description: "gemini-2.0-pro-exp-02-05",
+    transcription: "gemini-2.0-flash",
+    report: "gemini-2.0-pro-exp-02-05",
     label: "Business Tier (Pro for description, Flash for transcription)",
   },
   economy: {
-    description: "gemini-1.5-flash",
-    transcription: "gemini-1.5-flash",
-    report: "gemini-1.5-flash",
+    description: "gemini-2.0-flash",
+    transcription: "gemini-2.0-flash",
+    report: "gemini-2.0-flash",
     label: "Economy Tier (Flash models)",
   },
   budget: {
-    description: "gemini-1.5-flash",
-    transcription: "gemini-1.5-flash-8b",
-    report: "gemini-1.5-flash-8b",
-    label: "Budget Tier (Flash for description, 8B for transcription)",
+    description: "gemini-2.0-flash",
+    transcription: "gemini-2.0-flash-lite-preview-02-05",
+    report: "gemini-2.0-flash-lite-preview-02-05",
+    label: "Budget Tier (Flash for description, Flash Lite for transcription)",
   },
 } as const;
 
