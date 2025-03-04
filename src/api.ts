@@ -95,27 +95,27 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
       generateReportType: typeof req.body.generateReport
     });
 
-    // Select models based on tier - using the correct model names from current Gemini API
-    let screenshotModel = 'gemini-2.0-flash';
-    let audioModel = 'gemini-2.0-flash';
-    let mergeModel = 'gemini-2.0-flash';
-    let transcriptionModel = 'gemini-2.0-flash';
-    let reportModel = 'gemini-2.0-flash';
+    // Select models based on tier - using the actual available model names
+    let screenshotModel = 'gemini-1.5-flash';
+    let audioModel = 'gemini-1.5-flash';
+    let mergeModel = 'gemini-1.5-flash';
+    let transcriptionModel = 'gemini-1.5-flash';
+    let reportModel = 'gemini-1.5-flash';
 
     switch (tier) {
       case 'first':
-        screenshotModel = 'gemini-2.0-pro';
-        audioModel = 'gemini-2.0-pro';
-        mergeModel = 'gemini-2.0-pro';
-        transcriptionModel = 'gemini-2.0-pro';
-        reportModel = 'gemini-2.0-pro';
+        screenshotModel = 'gemini-1.5-pro';
+        audioModel = 'gemini-1.5-pro';
+        mergeModel = 'gemini-1.5-pro';
+        transcriptionModel = 'gemini-1.5-pro';
+        reportModel = 'gemini-1.5-pro';
         break;
       case 'business':
-        screenshotModel = 'gemini-2.0-pro';
-        audioModel = 'gemini-2.0-pro';
-        mergeModel = 'gemini-2.0-pro';
-        transcriptionModel = 'gemini-2.0-flash';
-        reportModel = 'gemini-2.0-pro';
+        screenshotModel = 'gemini-1.5-pro';
+        audioModel = 'gemini-1.5-pro';
+        mergeModel = 'gemini-1.5-pro';
+        transcriptionModel = 'gemini-1.5-flash';
+        reportModel = 'gemini-1.5-pro';
         break;
       case 'economy':
         // Already set to flash models
@@ -125,6 +125,14 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         reportModel = 'gemini-2.0-flash-lite';
         break;
     }
+    
+    console.log('Using models:', {
+      screenshotModel,
+      audioModel,
+      mergeModel,
+      transcriptionModel,
+      reportModel
+    });
 
     // Generate output directory
     const outputDir = path.join(__dirname, '../uploads', path.basename(filePath, path.extname(filePath)));
