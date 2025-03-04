@@ -72,10 +72,10 @@ Options:
 
 ### Processing Tiers
 
-- **First Tier** (`first`): Uses Gemini 2.0 Pro models for all operations
-- **Business Tier** (`business`): Gemini 2.0 Pro for description and report, Gemini 2.0 Flash for transcription
-- **Economy Tier** (`economy`): Gemini 2.0 Flash models for all operations
-- **Budget Tier** (`budget`): Gemini 2.0 Flash for description, Gemini 2.0 Flash Lite for transcription and report
+- **First Tier** (`first`): Uses Gemini 1.5 Pro models for all operations
+- **Business Tier** (`business`): Gemini 1.5 Pro for description and report, Gemini 1.5 Flash for transcription
+- **Economy Tier** (`economy`): Gemini 1.5 Flash models for all operations
+- **Budget Tier** (`budget`): Gemini 1.5 Flash for description, Gemini 2.0 Flash Lite for transcription and report
 
 ### As a Module
 

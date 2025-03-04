@@ -166,7 +166,7 @@ curl -O http://localhost:6543/api/results/1234567890/report
 
 Choose the processing tier that fits your needs:
 
-- **First Tier** (`first`): Gemini 2.0 Pro models for all operations
+- **First Tier** (`first`): Gemini 1.5 Pro models for all operations
   - Highest quality results
   - More detailed analysis
   - Best speaker identification
@@ -176,12 +176,12 @@ Choose the processing tier that fits your needs:
   - Good transcription quality
   - Great balance of quality and speed
 
-- **Economy Tier** (`economy`): Flash models for all operations
+- **Economy Tier** (`economy`): Gemini 1.5 Flash models for all operations
   - Good all-around quality
   - Faster processing
   - More cost-effective
 
-- **Budget Tier** (`budget`): Flash for description, Flash Lite for transcription/report
+- **Budget Tier** (`budget`): Gemini 1.5 Flash for description, Gemini 2.0 Flash Lite for transcription/report
   - Basic functionality
   - Fastest processing
   - Most cost-effective
