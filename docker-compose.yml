@@ -4,8 +4,8 @@ services:
   offmute-api:
     build: .
     ports:
-      - "3000:3000"
+      - "6543:6543"
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY=AIzaSyA008hF1g71vaE0JMo7syFWALHP4xRApWU
     volumes:
       - ./uploads:/app/uploads
