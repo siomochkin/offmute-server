@@ -6,6 +6,6 @@ services:
     ports:
       - "6543:6543"
     environment:
-      - GEMINI_API_KEY=AIzaSyA008hF1g71vaE0JMo7syFWALHP4xRApWU
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - ./uploads:/app/uploads

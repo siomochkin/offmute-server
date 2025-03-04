@@ -73,8 +73,27 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
     const tier = req.body.tier || 'business';
     const screenshotCount = parseInt(req.body.screenshotCount) || 4;
     const audioChunkMinutes = parseInt(req.body.audioChunkMinutes) || 10;
-    const generateReportFlag = req.body.generateReport === 'true';
-    const streamResponse = req.body.streamResponse === 'true';
+    
+    // More robust parameter parsing for boolean values - handle various formats
+    const generateReportFlag = req.body.generateReport === 'true' || 
+                               req.body.generateReport === true || 
+                               req.body.generateReport === '1' || 
+                               req.body.generateReport === 1;
+    
+    const streamResponse = req.body.streamResponse === 'true' || 
+                           req.body.streamResponse === true || 
+                           req.body.streamResponse === '1' || 
+                           req.body.streamResponse === 1;
+    
+    console.log('Request parameters:', {
+      tier,
+      screenshotCount,
+      audioChunkMinutes,
+      generateReportFlag,
+      streamResponse,
+      generateReportValue: req.body.generateReport,
+      generateReportType: typeof req.body.generateReport
+    });
 
     // Select models based on tier - using the correct model names from current Gemini API
     let screenshotModel = 'gemini-2.0-flash';
@@ -205,16 +224,24 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         // Step 3: Generate report if requested
         let report: GenerateReportResult | undefined = undefined;
         if (generateReportFlag) {
-          report = await generateReport(
-            description.finalDescription,
-            transcription.chunkTranscriptions.join('\n\n'),
-            {
-              model: reportModel,
-              outputPath: outputDir,
-              reportName: 'meeting_summary',
-              showProgress: true,
-            }
-          );
+          console.log('Generating report (streaming mode)...');
+          try {
+            report = await generateReport(
+              description.finalDescription,
+              transcription.chunkTranscriptions.join('\n\n'),
+              {
+                model: reportModel,
+                outputPath: outputDir,
+                reportName: 'meeting_summary',
+                showProgress: true,
+              }
+            );
+            console.log('Report generated successfully (streaming mode):', report);
+          } catch (reportError) {
+            console.error('Error generating report (streaming mode):', reportError);
+          }
+        } else {
+          console.log('Report generation skipped (not requested) in streaming mode');
         }
 
         // Create final result summary
@@ -345,16 +372,24 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
           // Step 3: Generate report if requested
           let report: GenerateReportResult | undefined = undefined;
           if (generateReportFlag) {
-            report = await generateReport(
-              description.finalDescription,
-              transcription.chunkTranscriptions.join('\n\n'),
-              {
-                model: reportModel,
-                outputPath: outputDir,
-                reportName: 'meeting_summary',
-                showProgress: true,
-              }
-            );
+            console.log('Generating report...');
+            try {
+              report = await generateReport(
+                description.finalDescription,
+                transcription.chunkTranscriptions.join('\n\n'),
+                {
+                  model: reportModel,
+                  outputPath: outputDir,
+                  reportName: 'meeting_summary',
+                  showProgress: true,
+                }
+              );
+              console.log('Report generated successfully:', report);
+            } catch (reportError) {
+              console.error('Error generating report:', reportError);
+            }
+          } else {
+            console.log('Report generation skipped (not requested)');
           }
 
           // Create final result summary
