@@ -43,7 +43,7 @@ GEMINI_API_KEY=your_key_here docker-compose up -d
 ```bash
 curl -F "file=@meeting.mp4;type=video/mp4" \
      -F "generateReport=true" \
-     http://localhost:3000/api/process
+     http://localhost:6543/api/process
 ```
 
 **Response:**
@@ -62,7 +62,7 @@ curl -F "file=@meeting.mp4;type=video/mp4" \
 curl -F "file=@meeting.mp4;type=video/mp4" \
      -F "generateReport=true" \
      -F "streamResponse=true" \
-     http://localhost:3000/api/process
+     http://localhost:6543/api/process
 ```
 
 This will keep the connection open and stream Server-Sent Events (SSE) with live updates as processing progresses:
@@ -83,7 +83,7 @@ This will keep the connection open and stream Server-Sent Events (SSE) with live
 ### 2. Check Job Status
 
 ```bash
-curl http://localhost:3000/api/jobs/1234567890
+curl http://localhost:6543/api/jobs/1234567890
 ```
 
 The status will progress through these stages:
@@ -153,13 +153,13 @@ The status will progress through these stages:
 
 ```bash
 # Download the description
-curl -O http://localhost:3000/api/results/1234567890/description
+curl -O http://localhost:6543/api/results/1234567890/description
 
 # Download the transcription
-curl -O http://localhost:3000/api/results/1234567890/transcription
+curl -O http://localhost:6543/api/results/1234567890/transcription
 
 # Download the report (if generated)
-curl -O http://localhost:3000/api/results/1234567890/report
+curl -O http://localhost:6543/api/results/1234567890/report
 ```
 
 ## 🛡️ Processing Tiers
