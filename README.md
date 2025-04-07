@@ -16,10 +16,13 @@
 - 🎯 **Transcription & Diarization**: Convert audio/video content to text while identifying different speakers
 - 🎭 **Smart Speaker Identification**: Attempts to identify speakers by name and role when possible
 - 📊 **Meeting Reports**: Generates structured reports with key points, action items, and participant profiles
-- 🎬 **Video Analysis**: Extracts and analyzes visual information from video meetings, understand when demos are beign didsplayed
+- 🎬 **Video Analysis**: Extracts and analyzes visual information from video meetings, understand when demos are being displayed
 - ⚡ **Multiple Processing Tiers**: From budget-friendly to premium processing options
 - 🔄 **Robust Processing**: Handles long meetings with automatic chunking and proper cleanup
 - 📁 **Flexible Output**: Markdown-formatted transcripts and reports with optional intermediate outputs
+- 🔍 **Real-time Progress**: View transcription and report generation progress in real-time
+- 🎯 **Custom Instructions**: Add your own context or instructions to guide the AI processing
+- 🧹 **Clean Filesystem**: Temporary files are managed cleanly without cluttering your directories
 
 ## 🏃 Quick Start
 
@@ -63,12 +66,14 @@ npx offmute <input-file> [options]
 
 Options:
 
-- `-t, --tier <tier>`: Processing tier (first, business, economy, budget) [default: "business"]
-- `-a, --all`: Save all intermediate outputs
+- `-t, --tier <tier>`: Processing tier (first, business, economy, budget, experimental) [default: "business"]
+- `-s, --save-intermediates`: Save intermediate processing files
+- `-id, --intermediates-dir <path>`: Custom directory for intermediate output
 - `-sc, --screenshot-count <number>`: Number of screenshots to extract [default: 4]
 - `-ac, --audio-chunk-minutes <number>`: Length of audio chunks in minutes [default: 10]
 - `-r, --report`: Generate a structured meeting report
 - `-rd, --reports-dir <path>`: Custom directory for report output
+- `-i, --instructions <text>`: Custom context or instructions to include in AI prompts
 
 ### Processing Tiers
 
@@ -76,6 +81,7 @@ Options:
 - **Business Tier** (`business`): Gemini 2.0 Pro for description and report, Gemini 2.0 Flash for transcription
 - **Economy Tier** (`economy`): Gemini 2.0 Flash models for all operations
 - **Budget Tier** (`budget`): Gemini 2.0 Flash for description, Gemini 2.0 Flash Lite for transcription and report
+- **Experimental Tier** (`experimental`): Uses the cutting-edge Gemini 2.5 Pro Preview model for all operations, with support for 65k token outputs
 
 ### As a Module
 
@@ -92,11 +98,13 @@ const description = await generateDescription(inputFile, {
   audioModel: "gemini-2.0-pro-exp-02-05",
   mergeModel: "gemini-2.0-pro-exp-02-05",
   showProgress: true,
+  userInstructions: "Focus on technical content and action items",
 });
 
 const transcription = await generateTranscription(inputFile, description, {
   transcriptionModel: "gemini-2.0-pro-exp-02-05",
   showProgress: true,
+  userInstructions: "Add emotions and tone information for each speaker",
 });
 
 // Generate a structured report
@@ -107,23 +115,68 @@ const report = await generateReport(
     model: "gemini-2.0-pro-exp-02-05",
     reportName: "meeting_summary",
     showProgress: true,
+    userInstructions: "Highlight all action items with bullet points",
   }
 );
 ```
 
 ## 🔧 Advanced Usage
 
-### Intermediate Outputs
+### Intermediate Files and Directories
 
-When run with the `-a` flag, offmute saves intermediate processing files:
+By default, offmute uses a system temporary directory to store intermediate files and cleans them up when processing completes. If you want to save these files:
+
+```bash
+# Save intermediates in a hidden .offmute_[filename] directory
+npx offmute meeting.mp4 --save-intermediates
+
+# Save intermediates in a custom directory
+npx offmute meeting.mp4 --save-intermediates --intermediates-dir ./processing_files
+```
+
+When saved, intermediate files are organized in a clean structure:
 
 ```
-input_file_intermediates/
+.offmute_meeting/
 ├── screenshots/          # Video screenshots
-├── audio/               # Processed audio chunks
-├── transcription/       # Per-chunk transcriptions
-└── report/             # Report generation data
+├── audio/                # Processed audio chunks
+├── transcription/        # Per-chunk transcriptions
+└── report/               # Report generation data
 ```
+
+### Custom Instructions
+
+You can provide custom instructions to the AI models to focus on specific aspects:
+
+```bash
+# Focus on technical details and action items
+npx offmute technical_meeting.mp4 -i "Focus on technical terminology and highlight all action items"
+
+# Improve speaker emotion detection
+npx offmute interview.mp4 -i "Pay special attention to emotional tone and hesitations"
+```
+
+### Real-time Progress Tracking
+
+Offmute now creates output files early in the process and updates them incrementally, allowing you to:
+
+1. See transcription progress in real-time
+2. Monitor report generation section by section
+3. Check partial results even for long-running processes
+
+### Experimental Mode
+
+Try the cutting-edge Gemini 2.5 Pro Preview model for improved performance across all operations:
+
+```bash
+# Use experimental mode with Gemini 2.5 Pro Preview
+npx offmute important_meeting.mp4 --tier experimental
+
+# Combine with custom instructions for best results
+npx offmute strategic_call.mp4 --tier experimental -i "Focus on financial projections and strategic initiatives"
+```
+
+The experimental tier leverages Gemini 2.5's expanded 65k token output capability, allowing for more detailed and comprehensive results, especially for longer meetings or when generating complex reports.
 
 ### Custom Chunk Sizes
 
@@ -152,12 +205,25 @@ offmute uses a multi-stage pipeline:
    - Processes audio chunks with context awareness
    - Identifies and labels speakers
    - Maintains conversation flow across chunks
+   - Shows real-time progress in the output file
 
 3. **Report Generation (Spreadfill)**
    - Uses a unique "Spreadfill" technique:
      1. Generates report structure with section headings
      2. Fills each section independently using full context
      3. Ensures coherent narrative while maintaining detailed coverage
+   - Updates report file in real-time as sections are completed
+
+### Metadata Management
+
+Offmute now includes accurate file metadata in outputs:
+
+- File creation and modification dates
+- Processing timestamp
+- File size and path information
+- Custom instructions (when provided)
+
+This provides reliable context without AI guessing incorrect meeting dates/times.
 
 ### Spreadfill Technique
 
