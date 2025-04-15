@@ -240,3 +240,27 @@ A structured summary including:
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 Created by [Hrishi Olickel](https://twitter.com/hrishioa) • Support offmute by starring our [GitHub repository](https://github.com/southbridgeai/offmute)
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `file` | File | Yes | - | The audio or video file to process (supported formats: .mp4, .webm, .mp3, .wav) |
+| `tier` | String | No | `"business"` | Processing tier to use (`"first"`, `"business"`, `"economy"`, `"budget"`, `"experimental"`) |
+| `screenshotCount` | Number | No | `4` | Number of screenshots to extract from video files |
+| `audioChunkMinutes` | Number | No | `10` | Length of audio chunks in minutes |
+| `generateReport` | Boolean | No | `false` | Whether to generate a structured meeting report |
+| `streamResponse` | Boolean | No | `false` | Whether to stream the response as events |
+| `instructions` | String | No | - | Custom context or instructions to include in AI prompts |
+| `apiKey` | String | No | - | Gemini API key to use for this request (overrides the server's environment variable) |
+
+### cURL Example
+```bash
+curl -X POST http://localhost:6543/api/process \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/meeting.mp4" \
+  -F "tier=business" \
+  -F "generateReport=true" \
+  -F "instructions=Focus on technical details and action items" \
+  -F "apiKey=YOUR_GEMINI_API_KEY"
+```
