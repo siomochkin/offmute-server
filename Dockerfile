@@ -22,17 +22,17 @@ WORKDIR /app
 # Copy package files
 COPY --chown=offmute:offmute package*.json ./
 
-# Install build tools globally first
-RUN npm install -g tsup typescript
-
-# Install ALL dependencies (including dev dependencies) for build process
-RUN npm install
+# Install ALL dependencies - don't use the production flag to ensure dev dependencies are included
+RUN npm install --include=dev
 
 # Copy source files
 COPY --chown=offmute:offmute . .
 
-# Build the application
-RUN npm run build && \
+# Build manually using npx to ensure correct path resolution
+RUN npx tsup && \
+    npx tsc --emitDeclarationOnly --declaration --declarationDir dist && \
+    mv dist/index.d.ts dist/index.d.mts && \
+    cp dist/index.d.mts dist/index.d.cts && \
     # Clean up dev dependencies after build
     npm prune --production && \
     # Remove unnecessary files to reduce attack surface
