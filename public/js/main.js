@@ -70,6 +70,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize submit button state
     updateSubmitButtonState();
 
+    // Function to validate form
+    function validateForm() {
+        // Check if file is selected
+        const isFileSelected = !!selectedFile;
+        
+        // Check if at least one processing option is selected
+        const isOptionSelected = contentDescriptionCheckbox.checked || 
+                                 transcriptionCheckbox.checked || 
+                                 technicalReportCheckbox.checked;
+        
+        // Check if API key is provided
+        const isApiKeyProvided = apiKey.value.trim().length > 0;
+        
+        // Update button state
+        processBtn.disabled = !(isFileSelected && isOptionSelected && isApiKeyProvided);
+        
+        return isFileSelected && isOptionSelected && isApiKeyProvided;
+    }
+
+    // Add event listener for API key field
+    apiKey.addEventListener('input', validateForm);
+
     /**
      * Setup drag and drop for the file input container
      */

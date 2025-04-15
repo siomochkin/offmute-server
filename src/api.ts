@@ -120,7 +120,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
       // Either the request provides an API key or the environment has one
     } else {
       return res.status(400).json({ 
-        error: 'Missing API key. Please provide a Gemini API key either as an environment variable or in the request',
+        error: 'Missing API key. You must provide a Google Gemini API key either in the request or as an environment variable.',
         code: 'MISSING_API_KEY'
       });
     }
@@ -508,7 +508,9 @@ app.listen(port, () => {
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   
   if (!process.env.GEMINI_API_KEY) {
-    console.warn('⚠️ Warning: GEMINI_API_KEY environment variable not set. Users must provide their own API key.');
+    console.warn('⚠️ Warning: GEMINI_API_KEY environment variable not set. Users MUST provide their own API key with each request.');
+  } else {
+    console.log('✅ GEMINI_API_KEY environment variable is set. Users can optionally override it with their own API key.');
   }
   
   // Check for uploads directory and create if not exists

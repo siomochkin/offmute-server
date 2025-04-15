@@ -188,25 +188,24 @@ You can start in `TODOs.md` to help with things I'm thinking about, or you can s
 
 Created by [Hrishi Olickel](https://twitter.com/hrishioa) • Support offmute by starring our [GitHub repository](https://github.com/southbridgeai/offmute)
 
-# OffMute Server - Unraid Docker Setup Guide
+# OffMute Server - Meeting Transcription & Analysis
 
-This guide provides instructions for setting up OffMute Server in Unraid using Docker.
+OffMute is a Docker-based server application for intelligent transcription, diarization, and analysis of meeting recordings using Google's Gemini AI models.
 
 ## Overview
 
-OffMute is a privacy-focused service that provides intelligent transcription, diarization, and analysis of meeting recordings using Google's Gemini AI models. It processes audio and video files to:
+OffMute processes audio and video files to:
 
 - Transcribe speech with speaker identification
-- Generate meeting descriptions
+- Generate detailed meeting descriptions
 - Create structured reports with key points and action items
 - Extract and analyze visual content from video meetings
 
 ## Requirements
 
-- Unraid server (6.9.0+)
-- Docker already installed on Unraid
-- Google Gemini API key
-- Reverse proxy (recommended for secure access)
+- Docker and Docker Compose
+- **Google Gemini API key (required)** - Users must provide their own API key
+- Sufficient disk space for processing media files
 
 ## Installation in Unraid
 
@@ -226,6 +225,8 @@ OffMute is a privacy-focused service that provides intelligent transcription, di
    ```bash
    echo "GEMINI_API_KEY=your_key_here" > .env
    ```
+   Note: If you don't set this environment variable, users will need to provide their own API key with each request.
+
 5. Run the container:
    ```bash
    docker-compose up -d
@@ -244,7 +245,7 @@ OffMute is a privacy-focused service that provides intelligent transcription, di
    - Add variable:
      - **Name**: GEMINI_API_KEY
      - **Value**: your_gemini_api_key
-     - **Description**: Google Gemini API Key
+     - **Description**: Google Gemini API Key (optional, users can provide their own)
    - Add path mapping:
      - **Host Path**: /mnt/user/appdata/offmute/uploads
      - **Container Path**: /app/uploads
@@ -284,19 +285,37 @@ server {
 }
 ```
 
-## Security Considerations
+## API Usage Guide
 
-1. **API Key Protection**:
-   - Your Gemini API key is stored in the Unraid Docker environment variables
-   - Never expose your API key in client-side code
+### 1. Upload and Process a Meeting Recording
 
-2. **File Security**:
-   - All uploaded files are stored in the mapped volume
-   - Permissions are controlled by the container
+```bash
+curl -F "file=@meeting.mp4;type=video/mp4" \
+     -F "generateReport=true" \
+     -F "apiKey=your_gemini_api_key" \
+     http://localhost:6543/api/process
+```
 
-3. **Network Security**:
-   - Use a reverse proxy with SSL for secure access
-   - Consider adding authentication through your reverse proxy
+**Note:** The `apiKey` parameter is required if you haven't set the GEMINI_API_KEY environment variable.
+
+### 2. Check Job Status
+
+```bash
+curl http://localhost:6543/api/jobs/1234567890
+```
+
+### 3. Download Results
+
+```bash
+# Download the description
+curl -O http://localhost:6543/api/results/1234567890/description
+
+# Download the transcription
+curl -O http://localhost:6543/api/results/1234567890/transcription
+
+# Download the report (if generated)
+curl -O http://localhost:6543/api/results/1234567890/report
+```
 
 ## Troubleshooting
 
@@ -317,4 +336,4 @@ server {
 ## Getting Help
 
 - GitHub Issues: [offmute-server Issues](https://github.com/siomochkin/offmute-server/issues)
-- Documentation: See the [DOCKER_API_README.md](https://github.com/siomochkin/offmute-server/blob/master/DOCKER_API_README.md) for API usage
+- Documentation: See the [DOCKER_API_README.md](https://github.com/siomochkin/offmute-server/blob/master/DOCKER_API_README.md) for detailed API usage
