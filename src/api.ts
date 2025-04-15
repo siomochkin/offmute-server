@@ -7,6 +7,7 @@ import { dirname } from 'path';
 import { generateDescription, generateTranscription, generateReport } from './index';
 import { GenerateReportResult } from './report';
 import crypto from 'crypto';
+import { exec } from 'child_process';
 
 // Create __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -174,19 +175,26 @@ function validateNumericParam(value: any, min: number, max: number, defaultValue
 // Process video/audio file with streaming response
 app.post('/api/process', uploadHandler, async (req, res) => {
   try {
+    console.log('==== API PROCESS REQUEST START ====');
+    
     if (!req.file) {
+      console.error('No file uploaded');
       return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    console.log(`File received: ${req.file.originalname}, size: ${req.file.size} bytes`);
 
     // Validate API key - first from request, then from env
     const apiKey = req.body.apiKey || process.env.GEMINI_API_KEY;
     if (!apiKey) {
+      console.error('Missing API key');
       return res.status(400).json({ 
         error: 'Missing API key. You must provide a Google Gemini API key either in the request or as an environment variable.',
         code: 'MISSING_API_KEY'
       });
     }
 
+    console.log(`API key validation: ${apiKey ? 'Valid key provided' : 'No key'}`);
     const filePath = req.file.path;
     
     // Validate and sanitize input parameters
@@ -219,123 +227,252 @@ app.post('/api/process', uploadHandler, async (req, res) => {
       apiKeyProvided: !!apiKey
     });
 
-    // Select models based on tier - using the actual available model names
-    let screenshotModel = 'gemini-1.5-flash';
-    let audioModel = 'gemini-1.5-flash';
-    let mergeModel = 'gemini-1.5-flash';
-    let transcriptionModel = 'gemini-1.5-flash';
-    let reportModel = 'gemini-1.5-flash';
-    
-    // Validate tier
-    const validTiers = ['first', 'business', 'economy', 'budget', 'experimental'];
-    if (!validTiers.includes(tier)) {
-      return res.status(400).json({
-        error: `Invalid tier. Must be one of: ${validTiers.join(', ')}`,
-        code: 'INVALID_TIER'
-      });
-    }
+    // Determine which models to use based on tier
+    const modelConfig = getTierConfig(tier);
+    console.log('Using models:', modelConfig);
 
-    // Select models based on tier
-    switch (tier) {
-      case 'first':
-        // Top tier uses Pro models for everything
-        screenshotModel = 'gemini-1.5-pro';
-        audioModel = 'gemini-1.5-pro';
-        mergeModel = 'gemini-1.5-pro';
-        transcriptionModel = 'gemini-1.5-pro';
-        reportModel = 'gemini-1.5-pro';
-        break;
-      case 'business':
-        // Business tier uses Pro for description/reports, Flash for transcription
-        screenshotModel = 'gemini-1.5-pro';
-        audioModel = 'gemini-1.5-pro';
-        mergeModel = 'gemini-1.5-pro';
-        transcriptionModel = 'gemini-1.5-flash';
-        reportModel = 'gemini-1.5-pro';
-        break;
-      case 'economy':
-        // Economy tier uses Flash models for everything
-        screenshotModel = 'gemini-1.5-flash';
-        audioModel = 'gemini-1.5-flash';
-        mergeModel = 'gemini-1.5-flash';
-        transcriptionModel = 'gemini-1.5-flash';
-        reportModel = 'gemini-1.5-flash';
-        break;
-      case 'budget':
-        // Budget tier uses Flash for description, Flash Lite for transcription/report
-        screenshotModel = 'gemini-1.5-flash';
-        audioModel = 'gemini-1.5-flash';
-        mergeModel = 'gemini-1.5-flash';
-        transcriptionModel = 'gemini-pro';
-        reportModel = 'gemini-pro';
-        break;
-      case 'experimental':
-        // Experimental tier - try new models
-        screenshotModel = 'models/gemini-1.5-pro-latest';
-        audioModel = 'models/gemini-1.5-pro-latest';
-        mergeModel = 'models/gemini-1.5-pro-latest';
-        transcriptionModel = 'models/gemini-1.5-pro-latest';
-        reportModel = 'models/gemini-1.5-pro-latest';
-        break;
-    }
+    // Create job ID and output directory
+    const jobId = crypto.randomUUID();
+    const outputDir = path.join(__dirname, '../uploads', `${jobId}-${path.basename(filePath, path.extname(filePath))}`);
     
-    console.log('Using models:', {
-      screenshotModel,
-      audioModel,
-      mergeModel,
-      transcriptionModel,
-      reportModel
-    });
-
-    // Generate a secure job ID with crypto randomness
-    const randomBytes = crypto.randomBytes(16).toString('hex');
-    const jobId = `${Date.now()}-${randomBytes}`;
-    
-    // Create output directory with sanitized path to prevent path traversal
-    const sanitizedFileName = path.basename(filePath, path.extname(filePath))
-      .replace(/[^a-zA-Z0-9_-]/g, '_');
-    
-    const outputDir = path.join(__dirname, '../uploads', `${jobId}-${sanitizedFileName}`);
-    if (!fs.existsSync(outputDir)) {
+    try {
       fs.mkdirSync(outputDir, { recursive: true });
+      console.log(`Created output directory: ${outputDir}`);
+    } catch (error) {
+      console.error(`Error creating output directory: ${error}`);
+      return res.status(500).json({ error: 'Failed to create job directory' });
     }
-    
-    // Save job info - don't store API key
-    fs.writeFileSync(
-      path.join(outputDir, 'job.json'),
-      JSON.stringify({
-        jobId,
-        status: 'processing',
-        inputFile: req.file.originalname,
-        startedAt: new Date().toISOString(),
-        parameters: {
-          tier,
-          screenshotCount,
-          audioChunkMinutes,
-          generateReport: generateReportFlag,
-          streamResponse,
-          hasCustomInstructions: !!instructions
-        }
-      }, null, 2)
-    );
-    
-    // For non-streaming response, immediately return job info
-    if (!streamResponse) {
-      res.json({
-        message: 'Processing started',
-        jobId,
-        status: 'processing',
-        inputFile: req.file.originalname
-      });
+
+    // Initial response for both streaming and non-streaming
+    if (streamResponse) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
       
-      // Continue processing in the background
+      // Send initial event
+      res.write(`data: ${JSON.stringify({
+        jobId,
+        status: 'processing',
+        progress: 0,
+        message: 'Starting processing...'
+      })}\n\n`);
+      
+      console.log('Started streaming response');
+    } else {
+      // For non-streaming, just return the job ID
+      res.json({ jobId });
+      console.log('Sent non-streaming response with job ID');
+    }
+
+    // Start processing in background
+    if (streamResponse) {
+      console.log('Beginning background processing with streaming updates');
+      // For streaming responses, we process in the background and send updates via SSE
+      (async () => {
+        try {
+          console.log('Starting media processing');
+          // Try-catch block around the processing code
+          try {
+            // Process steps with stream updates
+            const mediaInfo = await getMediaInfo(filePath);
+            console.log(`Media info extracted: ${JSON.stringify(mediaInfo)}`);
+            
+            // Send update
+            res.write(`data: ${JSON.stringify({
+              jobId,
+              status: 'processing',
+              progress: 10,
+              message: 'Analyzing media file...'
+            })}\n\n`);
+            
+            // Generate screenshots if it's a video
+            let screenshotPaths: string[] = [];
+            if (mediaInfo.isVideo) {
+              console.log('Generating screenshots');
+              screenshotPaths = await generateScreenshots(filePath, outputDir, screenshotCount);
+              console.log(`Generated ${screenshotPaths.length} screenshots`);
+              
+              // Send update
+              res.write(`data: ${JSON.stringify({
+                jobId,
+                status: 'processing',
+                progress: 20,
+                message: 'Screenshots generated...'
+              })}\n\n`);
+            }
+            
+            // Generate content description based on audio and/or screenshots
+            console.log('Generating content description');
+            const description = await generateContentDescription(
+              filePath, 
+              outputDir, 
+              mediaInfo, 
+              screenshotPaths,
+              apiKey,
+              modelConfig.screenshotModel,
+              modelConfig.audioModel,
+              modelConfig.mergeModel,
+              instructions,
+              audioChunkMinutes
+            );
+            console.log('Content description complete');
+            
+            // Write description to file
+            const descriptionPath = path.join(outputDir, `${path.basename(filePath, path.extname(filePath))}_description.md`);
+            fs.writeFileSync(descriptionPath, description);
+            console.log(`Description saved to ${descriptionPath}`);
+            
+            // Send update
+            res.write(`data: ${JSON.stringify({
+              jobId,
+              status: 'description_complete',
+              progress: 40,
+              message: 'Description complete, generating transcription...',
+              description
+            })}\n\n`);
+
+            // Generate transcription if needed
+            console.log('Starting transcription generation');
+            
+            // First generate description result for transcription input
+            const descriptionResult = await generateDescription(filePath, {
+              screenshotModel: modelConfig.screenshotModel,
+              audioModel: modelConfig.audioModel,
+              mergeModel: modelConfig.mergeModel,
+              screenshotCount,
+              transcriptionChunkMinutes: audioChunkMinutes,
+              outputPath: outputDir,
+              showProgress: true,
+              userInstructions: instructions,
+              apiKey
+            });
+            
+            // Then generate transcription
+            const transcriptionResult = await generateTranscription(
+              filePath, 
+              descriptionResult,
+              {
+                transcriptionModel: modelConfig.transcriptionModel,
+                outputPath: outputDir,
+                showProgress: true,
+                userInstructions: instructions,
+                apiKey
+              }
+            );
+            
+            // Read the transcription content
+            const transcriptionContent = fs.readFileSync(transcriptionResult.transcriptionPath, 'utf-8');
+            console.log('Transcription complete');
+            
+            // Send update
+            res.write(`data: ${JSON.stringify({
+              jobId,
+              status: 'transcription_complete',
+              progress: 80,
+              message: 'Transcription complete...',
+              description,
+              transcription: transcriptionContent
+            })}\n\n`);
+
+            // Generate technical report if requested
+            let reportResult: { report: string; reportPath: string } | null = null;
+            if (generateReportFlag) {
+              console.log('Generating technical report');
+              reportResult = await generateTechnicalReport(
+                filePath,
+                outputDir,
+                mediaInfo,
+                description,
+                transcriptionContent,
+                apiKey,
+                modelConfig.reportModel
+              );
+              console.log('Technical report complete');
+            }
+
+            // Create final result summary
+            const resultSummary = {
+              jobId,
+              status: 'completed',
+              progress: 100,
+              message: 'Processing complete!',
+              inputFile: req.file ? req.file.originalname : path.basename(filePath),
+              description,
+              transcription: transcriptionContent,
+              report: reportResult ? reportResult.report : null,
+              outputs: {
+                descriptionFile: path.relative(path.join(__dirname, '..'), descriptionPath),
+                transcriptionFile: path.relative(path.join(__dirname, '..'), transcriptionResult.transcriptionPath),
+                reportFile: reportResult ? path.relative(path.join(__dirname, '..'), reportResult.reportPath) : null,
+              },
+              downloadLinks: {
+                description: `/api/results/${jobId}/description`,
+                transcription: `/api/results/${jobId}/transcription`,
+                report: reportResult ? `/api/results/${jobId}/report` : null,
+              }
+            };
+
+            // Save result summary
+            fs.writeFileSync(
+              path.join(outputDir, 'result.json'),
+              JSON.stringify(resultSummary, null, 2)
+            );
+            console.log('Results saved to disk');
+
+            // Send final update
+            res.write(`data: ${JSON.stringify(resultSummary)}\n\n`);
+            console.log('Final update sent, closing stream');
+            
+            // Close the connection
+            res.end();
+          } catch (processingError) {
+            console.error('Error during media processing:', processingError);
+            // Send error update
+            res.write(`data: ${JSON.stringify({
+              jobId,
+              status: 'failed',
+              error: processingError instanceof Error ? processingError.message : String(processingError)
+            })}\n\n`);
+            
+            // Close the connection
+            res.end();
+            
+            // Save error info
+            fs.writeFileSync(
+              path.join(outputDir, 'error.json'),
+              JSON.stringify({
+                jobId,
+                status: 'failed',
+                error: processingError instanceof Error ? processingError.message : String(processingError),
+                timestamp: new Date().toISOString()
+              }, null, 2)
+            );
+          }
+        } catch (error) {
+          console.error('Fatal error in background processing:', error);
+          // Save error info
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          fs.writeFileSync(
+            path.join(outputDir, 'error.json'),
+            JSON.stringify({
+              jobId,
+              status: 'failed',
+              error: errorMessage,
+              timestamp: new Date().toISOString()
+            }, null, 2)
+          );
+        }
+      })();
+    } else {
+      console.log('Beginning background processing for polling mode');
+      // For non-streaming, we just process in the background and let client poll
       (async () => {
         try {
           // Step 1: Generate description
           const description = await generateDescription(filePath, {
-            screenshotModel,
-            audioModel,
-            mergeModel,
+            screenshotModel: modelConfig.screenshotModel,
+            audioModel: modelConfig.audioModel,
+            mergeModel: modelConfig.mergeModel,
             screenshotCount,
             transcriptionChunkMinutes: audioChunkMinutes,
             descriptionChunkMinutes: audioChunkMinutes * 2,
@@ -368,7 +505,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
 
           // Step 2: Generate transcription
           const transcription = await generateTranscription(filePath, description, {
-            transcriptionModel,
+            transcriptionModel: modelConfig.transcriptionModel,
             outputPath: outputDir,
             showProgress: true,
             userInstructions: instructions,
@@ -405,7 +542,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
                 description.finalDescription,
                 transcription.chunkTranscriptions.join('\n\n'),
                 {
-                  model: reportModel,
+                  model: modelConfig.reportModel,
                   outputPath: outputDir,
                   reportName: 'meeting_summary',
                   showProgress: true,
@@ -719,3 +856,239 @@ app.listen(port, () => {
 });
 
 export { app };
+
+/**
+ * Get model configuration based on tier
+ */
+function getTierConfig(tier: string) {
+  // Validate tier
+  const validTiers = ['first', 'business', 'economy', 'budget', 'experimental'];
+  if (!validTiers.includes(tier)) {
+    throw new Error(`Invalid tier. Must be one of: ${validTiers.join(', ')}`);
+  }
+
+  // Default configuration
+  let config = {
+    screenshotModel: 'gemini-1.5-flash',
+    audioModel: 'gemini-1.5-flash',
+    mergeModel: 'gemini-1.5-flash',
+    transcriptionModel: 'gemini-1.5-flash',
+    reportModel: 'gemini-1.5-flash'
+  };
+
+  // Select models based on tier
+  switch (tier) {
+    case 'first':
+      // Top tier uses Pro models for everything
+      config = {
+        screenshotModel: 'gemini-1.5-pro',
+        audioModel: 'gemini-1.5-pro',
+        mergeModel: 'gemini-1.5-pro',
+        transcriptionModel: 'gemini-1.5-pro',
+        reportModel: 'gemini-1.5-pro'
+      };
+      break;
+    case 'business':
+      // Business tier uses Pro for description/reports, Flash for transcription
+      config = {
+        screenshotModel: 'gemini-1.5-pro',
+        audioModel: 'gemini-1.5-pro',
+        mergeModel: 'gemini-1.5-pro',
+        transcriptionModel: 'gemini-1.5-flash',
+        reportModel: 'gemini-1.5-pro'
+      };
+      break;
+    case 'economy':
+      // Economy tier uses Flash models for everything
+      config = {
+        screenshotModel: 'gemini-1.5-flash',
+        audioModel: 'gemini-1.5-flash',
+        mergeModel: 'gemini-1.5-flash',
+        transcriptionModel: 'gemini-1.5-flash',
+        reportModel: 'gemini-1.5-flash'
+      };
+      break;
+    case 'budget':
+      // Budget tier uses Flash for description, Flash Lite for transcription/report
+      config = {
+        screenshotModel: 'gemini-1.5-flash',
+        audioModel: 'gemini-1.5-flash',
+        mergeModel: 'gemini-1.5-flash',
+        transcriptionModel: 'gemini-pro',
+        reportModel: 'gemini-pro'
+      };
+      break;
+    case 'experimental':
+      // Experimental tier - try new models
+      config = {
+        screenshotModel: 'models/gemini-1.5-pro-latest',
+        audioModel: 'models/gemini-1.5-pro-latest',
+        mergeModel: 'models/gemini-1.5-pro-latest',
+        transcriptionModel: 'models/gemini-1.5-pro-latest',
+        reportModel: 'models/gemini-1.5-pro-latest'
+      };
+      break;
+  }
+
+  return config;
+}
+
+/**
+ * Extract media information from file
+ */
+async function getMediaInfo(filePath: string): Promise<{isVideo: boolean, duration: number}> {
+  try {
+    // Use ffprobe to get media info
+    const output = await new Promise<string>((resolve, reject) => {
+      exec(`ffprobe -v error -show_entries format=duration -of json "${filePath}"`, (error, stdout) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(stdout);
+        }
+      });
+    });
+
+    const data = JSON.parse(output);
+    const duration = parseFloat(data.format.duration);
+
+    // Check if it's a video by looking for video streams
+    const videoCheck = await new Promise<string>((resolve, reject) => {
+      exec(`ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of json "${filePath}"`, (error, stdout) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(stdout);
+        }
+      });
+    });
+
+    const videoData = JSON.parse(videoCheck);
+    const isVideo = videoData.streams && videoData.streams.length > 0;
+
+    return { 
+      isVideo, 
+      duration 
+    };
+  } catch (error) {
+    console.error('Error getting media info:', error);
+    return { 
+      isVideo: false, 
+      duration: 0 
+    };
+  }
+}
+
+/**
+ * Generate screenshots from video
+ */
+async function generateScreenshots(filePath: string, outputDir: string, count: number): Promise<string[]> {
+  const screenshotPaths: string[] = [];
+  
+  try {
+    // Get video duration
+    const mediaInfo = await getMediaInfo(filePath);
+    if (!mediaInfo.isVideo || mediaInfo.duration <= 0) {
+      console.log('Not a video or invalid duration, skipping screenshots');
+      return screenshotPaths;
+    }
+    
+    // Calculate screenshot intervals
+    const interval = mediaInfo.duration / (count + 1);
+    
+    // Generate screenshots
+    for (let i = 1; i <= count; i++) {
+      const timestamp = interval * i;
+      const outputPath = path.join(outputDir, `screenshot_${i}.jpg`);
+      
+      await new Promise<void>((resolve, reject) => {
+        exec(`ffmpeg -ss ${timestamp} -i "${filePath}" -vframes 1 -q:v 2 "${outputPath}"`, (error) => {
+          if (error) {
+            console.error(`Error generating screenshot ${i}:`, error);
+            reject(error);
+          } else {
+            screenshotPaths.push(outputPath);
+            resolve();
+          }
+        });
+      });
+    }
+    
+    return screenshotPaths;
+  } catch (error) {
+    console.error('Error generating screenshots:', error);
+    return screenshotPaths;
+  }
+}
+
+/**
+ * Generate content description from media
+ */
+async function generateContentDescription(
+  filePath: string,
+  outputDir: string,
+  mediaInfo: {isVideo: boolean, duration: number},
+  screenshotPaths: string[],
+  apiKey: string,
+  screenshotModel: string,
+  audioModel: string,
+  mergeModel: string,
+  instructions?: string,
+  audioChunkMinutes: number = 10
+): Promise<string> {
+  console.log('Calling generateDescription with models:', { screenshotModel, audioModel, mergeModel });
+  
+  // Call the existing generateDescription function with the right parameters
+  const descriptionResult = await generateDescription(filePath, {
+    screenshotModel,
+    audioModel,
+    mergeModel,
+    screenshotCount: screenshotPaths.length,
+    transcriptionChunkMinutes: audioChunkMinutes,
+    outputPath: outputDir,
+    showProgress: true,
+    userInstructions: instructions,
+    apiKey
+  });
+  
+  return descriptionResult.finalDescription;
+}
+
+/**
+ * Generate technical report
+ */
+async function generateTechnicalReport(
+  filePath: string,
+  outputDir: string,
+  mediaInfo: {isVideo: boolean, duration: number},
+  description: string,
+  transcription: string,
+  apiKey: string,
+  reportModel: string
+): Promise<{report: string, reportPath: string}> {
+  console.log('Generating technical report with model:', reportModel);
+  
+  // Create a name for the report file
+  const reportFile = path.basename(filePath, path.extname(filePath)) + '_report';
+  
+  // Call the existing generateReport function
+  const reportResult = await generateReport(
+    description,
+    transcription,
+    {
+      model: reportModel,
+      outputPath: outputDir,
+      reportName: reportFile,
+      showProgress: true,
+      apiKey
+    }
+  );
+  
+  // Read the report content from the file
+  const reportContent = fs.readFileSync(reportResult.reportPath, 'utf-8');
+  
+  return {
+    report: reportContent,
+    reportPath: reportResult.reportPath
+  };
+}

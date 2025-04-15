@@ -80,13 +80,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                  transcriptionCheckbox.checked || 
                                  technicalReportCheckbox.checked;
         
-        // Check if API key is provided
-        const isApiKeyProvided = apiKey.value.trim().length > 0;
+        // Update button state - make API key optional
+        processBtn.disabled = !(isFileSelected && isOptionSelected);
         
-        // Update button state
-        processBtn.disabled = !(isFileSelected && isOptionSelected && isApiKeyProvided);
-        
-        return isFileSelected && isOptionSelected && isApiKeyProvided;
+        return isFileSelected && isOptionSelected;
     }
 
     // Add event listener for API key field
@@ -215,6 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 formData.append('instructions', instructions.value.trim());
             }
             
+            // Only append API key if provided in the form
             if (apiKey.value.trim()) {
                 formData.append('apiKey', apiKey.value.trim());
             }
