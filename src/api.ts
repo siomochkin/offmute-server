@@ -30,7 +30,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 1024 * 1024 * 500 }, // 500MB max file size
+  limits: { fileSize: 1024 * 1024 * 2000 }, // 2GB max file size (increased from 500MB)
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/webm'];
     const allowedExtensions = ['.mp4', '.webm', '.mp3', '.wav'];
@@ -53,17 +53,41 @@ const upload = multer({
   }
 });
 
+// Add error handler for multer
+const uploadHandler = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      if (err instanceof multer.MulterError) {
+        // A Multer error occurred when uploading
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ 
+            error: 'File too large. Maximum file size is 2GB',
+            code: 'FILE_TOO_LARGE'
+          });
+        }
+        return res.status(400).json({ error: err.message, code: err.code });
+      }
+      // An unknown error occurred
+      return res.status(500).json({ error: err.message });
+    }
+    next();
+  });
+};
+
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.get('/', (req, res) => {
-  res.json({ message: 'Offmute API is running' });
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Process video/audio file with streaming response
-app.post('/api/process', upload.single('file'), async (req, res) => {
+app.post('/api/process', uploadHandler, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -96,9 +120,7 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
       generateReportFlag,
       streamResponse,
       instructions: instructions ? 'Provided' : 'Not provided',
-      apiKey: apiKey ? 'Provided' : 'Not provided',
-      generateReportValue: req.body.generateReport,
-      generateReportType: typeof req.body.generateReport
+      apiKey: apiKey ? 'Provided' : 'Not provided'
     });
 
     // Select models based on tier - using the actual available model names
@@ -163,16 +185,32 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders();
 
+      // Helper function to send SSE updates
+      const sendUpdate = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
       // Send initial status
-      res.write(`data: ${JSON.stringify({
+      sendUpdate({
         message: 'Processing started',
         jobId,
         status: 'processing',
         inputFile: req.file.originalname,
-      })}\n\n`);
+        progress: 5
+      });
       
       try {
         // Step 1: Generate description
+        // Send a mid-processing update
+        setTimeout(() => {
+          sendUpdate({
+            jobId,
+            status: 'processing',
+            progress: 15,
+            message: 'Analyzing audio content...'
+          });
+        }, 2000);
+
         const description = await generateDescription(filePath, {
           screenshotModel,
           audioModel,
@@ -190,6 +228,7 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         const intermediateResult = {
           jobId,
           status: 'description_complete',
+          progress: 40,
           inputFile: req.file ? req.file.originalname : path.basename(filePath),
           description: description.finalDescription,
           outputs: {
@@ -209,7 +248,17 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         );
 
         // Send description update
-        res.write(`data: ${JSON.stringify(intermediateResult)}\n\n`);
+        sendUpdate(intermediateResult);
+
+        // Send a mid-processing update
+        setTimeout(() => {
+          sendUpdate({
+            jobId,
+            status: 'processing',
+            progress: 60,
+            message: 'Generating transcription...'
+          });
+        }, 2000);
 
         // Step 2: Generate transcription
         const transcription = await generateTranscription(filePath, description, {
@@ -224,6 +273,7 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         const transcriptionResult = {
           jobId,
           status: 'transcription_complete',
+          progress: 80,
           inputFile: req.file ? req.file.originalname : path.basename(filePath),
           description: description.finalDescription,
           transcription: transcription.chunkTranscriptions.join('\n\n'),
@@ -244,11 +294,19 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         );
 
         // Send transcription update
-        res.write(`data: ${JSON.stringify(transcriptionResult)}\n\n`);
+        sendUpdate(transcriptionResult);
 
         // Step 3: Generate report if requested
         let report: GenerateReportResult | undefined = undefined;
         if (generateReportFlag) {
+          // Send a mid-processing update
+          sendUpdate({
+            jobId,
+            status: 'processing',
+            progress: 90,
+            message: 'Creating technical report...'
+          });
+
           console.log('Generating report (streaming mode)...');
           try {
             report = await generateReport(
@@ -275,6 +333,7 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         const resultSummary = {
           jobId,
           status: 'completed',
+          progress: 100,
           inputFile: req.file ? req.file.originalname : path.basename(filePath),
           description: description.finalDescription,
           transcription: transcription.chunkTranscriptions.join('\n\n'),
@@ -298,7 +357,7 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         );
 
         // Send final update and end the stream
-        res.write(`data: ${JSON.stringify(resultSummary)}\n\n`);
+        sendUpdate(resultSummary);
         res.end();
 
       } catch (error) {
@@ -317,10 +376,10 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         );
 
         // Send error to client and end stream
-        res.write(`data: ${JSON.stringify({
+        sendUpdate({
           status: 'failed',
           error: errorMessage
-        })}\n\n`);
+        });
         res.end();
       }
     } else {

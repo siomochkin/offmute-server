@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OffMute - Audio Processing Service</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <header>
+        <h1>OffMute</h1>
+        <p>Privacy-Focused Audio Processing Service</p>
+    </header>
+
+    <main>
+        <section class="card-container">
+            <h2>Upload Audio</h2>
+            <div class="file-input-container">
+                <input type="file" id="fileInput" accept="audio/*,video/*" class="hidden">
+                <label for="fileInput">
+                    <span>Choose an audio or video file</span>
+                    <span class="secondary">or drag and drop here</span>
+                </label>
+            </div>
+            <div id="fileInfo" class="file-info"></div>
+        </section>
+
+        <section class="card-container options-container">
+            <h2>Processing Options</h2>
+            <div class="checkbox-group">
+                <div class="checkbox-item">
+                    <input type="checkbox" id="contentDescription" checked>
+                    <label for="contentDescription">Content Description</label>
+                    <span class="tooltip">Generate a description of the audio content</span>
+                </div>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="transcription" checked>
+                    <label for="transcription">Transcription</label>
+                    <span class="tooltip">Convert speech to text</span>
+                </div>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="technicalReport">
+                    <label for="technicalReport">Technical Report</label>
+                    <span class="tooltip">Analyze audio quality and technical aspects</span>
+                </div>
+            </div>
+            
+            <div class="advanced-toggle">
+                <button id="advancedToggleBtn" class="text-button">Show Advanced Options</button>
+            </div>
+            
+            <div id="advancedOptions" class="advanced-options hidden">
+                <h3>Advanced Options</h3>
+                
+                <div class="form-group">
+                    <label for="tierSelect">Processing Tier:</label>
+                    <select id="tierSelect" class="form-control">
+                        <option value="business" selected>Business (Standard)</option>
+                        <option value="first">First Class (Highest Quality)</option>
+                        <option value="economy">Economy (Faster)</option>
+                        <option value="budget">Budget (Basic)</option>
+                        <option value="experimental">Experimental (Latest Models)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="screenshotCount">Screenshot Count (for videos):</label>
+                    <input type="number" id="screenshotCount" class="form-control" value="4" min="1" max="20">
+                </div>
+                
+                <div class="form-group">
+                    <label for="audioChunkMinutes">Audio Chunk Size (minutes):</label>
+                    <input type="number" id="audioChunkMinutes" class="form-control" value="10" min="1" max="30">
+                </div>
+                
+                <div class="form-group">
+                    <label for="instructions">Processing Instructions:</label>
+                    <textarea id="instructions" class="form-control" placeholder="Optional: Add specific instructions for processing (e.g., 'Focus on technical details')"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="apiKey">API Key (optional):</label>
+                    <input type="text" id="apiKey" class="form-control" placeholder="Enter your Google Gemini API key">
+                </div>
+                
+                <div class="form-group checkbox-item">
+                    <input type="checkbox" id="streamResponse" checked>
+                    <label for="streamResponse">Stream Response</label>
+                    <span class="tooltip">Show real-time progress updates during processing</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="card-container button-container">
+            <button id="processBtn" class="primary-button" disabled>Process Audio</button>
+            <button id="cancelBtn" class="secondary-button" disabled>Cancel</button>
+        </section>
+
+        <section id="progressSection" class="card-container hidden">
+            <h2>Processing</h2>
+            <div class="progress-container">
+                <div class="progress-bar"></div>
+            </div>
+            <p id="progressText">Starting...</p>
+        </section>
+
+        <section id="resultsSection" class="card-container hidden">
+            <h2>Results</h2>
+            
+            <div id="contentDescriptionResult" class="result-container hidden">
+                <h3>Content Description</h3>
+                <div class="result-content"></div>
+            </div>
+            
+            <div id="transcriptionResult" class="result-container hidden">
+                <h3>Transcription</h3>
+                <div class="result-content"></div>
+            </div>
+            
+            <div id="technicalReportResult" class="result-container hidden">
+                <h3>Technical Report</h3>
+                <div class="result-content"></div>
+            </div>
+            
+            <div class="button-container">
+                <button id="newProcessButton" class="primary-button">Process Another File</button>
+                <button id="downloadButton" class="secondary-button">Download Results</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2023 OffMute - All processing happens locally on your device</p>
+    </footer>
+
+    <script src="/js/main.js"></script>
+</body>
+</html> 
