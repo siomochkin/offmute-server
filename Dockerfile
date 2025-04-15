@@ -22,6 +22,9 @@ WORKDIR /app
 # Copy package files
 COPY --chown=offmute:offmute package*.json ./
 
+# Install build tools globally first
+RUN npm install -g tsup typescript
+
 # Install ALL dependencies (including dev dependencies) for build process
 RUN npm install
 
