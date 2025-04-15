@@ -130,6 +130,13 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
         transcriptionModel = 'gemini-2.0-flash-lite';
         reportModel = 'gemini-2.0-flash-lite';
         break;
+      case 'experimental':
+        screenshotModel = 'gemini-2.5-pro-preview-03-25';
+        audioModel = 'gemini-2.5-pro-preview-03-25';
+        mergeModel = 'gemini-2.5-pro-preview-03-25';
+        transcriptionModel = 'gemini-2.5-pro-preview-03-25';
+        reportModel = 'gemini-2.5-pro-preview-03-25';
+        break;
     }
     
     console.log('Using models:', {
