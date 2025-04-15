@@ -9,6 +9,7 @@ interface TranscriptionOptions {
   outputPath?: string;
   showProgress?: boolean;
   userInstructions?: string;
+  apiKey?: string;
 }
 
 interface TranscriptionResult {
@@ -77,6 +78,7 @@ export async function generateTranscription(
     outputPath = path.dirname(inputFile),
     showProgress = false,
     userInstructions,
+    apiKey,
   } = options;
 
   // Create output directory if it doesn't exist
@@ -145,7 +147,8 @@ export async function generateTranscription(
         {
           maxRetries: 3,
           temperature: 0.2, // Lower temperature for more consistent transcription
-        }
+        },
+        apiKey
       );
 
       // Save chunk progress including prompt and response

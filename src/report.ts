@@ -15,6 +15,7 @@ interface GenerateReportOptions {
   reportName: string;
   showProgress?: boolean;
   userInstructions?: string;
+  apiKey?: string;
 }
 
 export interface GenerateReportResult {
@@ -95,7 +96,7 @@ export async function generateReport(
   transcript: string,
   options: GenerateReportOptions
 ): Promise<GenerateReportResult> {
-  const { model, outputPath, reportName, showProgress = false, userInstructions } = options;
+  const { model, outputPath, reportName, showProgress = false, userInstructions, apiKey } = options;
 
   // Create report directory under outputPath
   const reportDir = path.join(outputPath, "report");
@@ -129,7 +130,8 @@ export async function generateReport(
         maxRetries: 3,
         temperature: 0.2,
         schema: REPORT_HEADINGS_JSONSCHEMA,
-      }
+      },
+      apiKey
     );
 
     if (headingsResponse.error) {
@@ -188,7 +190,8 @@ export async function generateReport(
           {
             maxRetries: 3,
             temperature: 0.3,
-          }
+          },
+          apiKey
         );
 
         if (
@@ -215,7 +218,8 @@ export async function generateReport(
               {
                 maxRetries: 2,
                 temperature: 0.3,
-              }
+              },
+              apiKey
             );
 
             if (

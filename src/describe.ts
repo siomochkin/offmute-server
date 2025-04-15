@@ -21,6 +21,7 @@ interface GenerateDescriptionOptions {
   outputPath?: string;
   showProgress?: boolean;
   userInstructions?: string;
+  apiKey?: string;
 }
 
 export interface GenerateDescriptionResult {
@@ -90,6 +91,7 @@ export async function generateDescription(
     mergeModel,
     outputPath,
     showProgress = false,
+    apiKey,
   } = options;
 
   // Initialize progress bars if needed
@@ -134,7 +136,9 @@ export async function generateDescription(
             const imageDescription = await generateWithGemini(
               screenshotModel,
               IMAGE_DESC_PROMPT(screenshots.map((s) => s.path).join(", ")),
-              screenshots.map((s) => ({ path: s.path }))
+              screenshots.map((s) => ({ path: s.path })),
+              {},
+              apiKey
             );
 
             if (screenshotBar) screenshotBar.update(100);
@@ -161,7 +165,9 @@ export async function generateDescription(
         const audioDescription = await generateWithGemini(
           audioModel,
           AUDIO_DESC_PROMPT(path.basename(inputFile)),
-          [{ path: chunks.tagSample }]
+          [{ path: chunks.tagSample }],
+          {},
+          apiKey
         );
 
         if (audioBar) audioBar.update(100);
@@ -187,7 +193,9 @@ export async function generateDescription(
     const finalDescription = await generateWithGemini(
       mergeModel,
       MERGE_DESC_PROMPT(descriptionsToMerge),
-      []
+      [],
+      {},
+      apiKey
     );
 
     if (processingBar) processingBar.update(100);

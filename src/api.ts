@@ -73,6 +73,10 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
     const tier = req.body.tier || 'business';
     const screenshotCount = parseInt(req.body.screenshotCount) || 4;
     const audioChunkMinutes = parseInt(req.body.audioChunkMinutes) || 10;
+    // Get custom instructions if provided
+    const instructions = req.body.instructions || undefined;
+    // Get API key if provided
+    const apiKey = req.body.apiKey || undefined;
     
     // More robust parameter parsing for boolean values - handle various formats
     const generateReportFlag = req.body.generateReport === 'true' || 
@@ -91,6 +95,8 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
       audioChunkMinutes,
       generateReportFlag,
       streamResponse,
+      instructions: instructions ? 'Provided' : 'Not provided',
+      apiKey: apiKey ? 'Provided' : 'Not provided',
       generateReportValue: req.body.generateReport,
       generateReportType: typeof req.body.generateReport
     });
@@ -169,6 +175,8 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
           descriptionChunkMinutes: audioChunkMinutes * 2,
           outputPath: outputDir,
           showProgress: true,
+          userInstructions: instructions,
+          apiKey,
         });
 
         // Save intermediate description result
@@ -201,6 +209,8 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
           transcriptionModel,
           outputPath: outputDir,
           showProgress: true,
+          userInstructions: instructions,
+          apiKey,
         });
 
         // Update with transcription result
@@ -242,6 +252,8 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
                 outputPath: outputDir,
                 reportName: 'meeting_summary',
                 showProgress: true,
+                userInstructions: instructions,
+                apiKey,
               }
             );
             console.log('Report generated successfully (streaming mode):', report);
@@ -326,6 +338,8 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
             descriptionChunkMinutes: audioChunkMinutes * 2,
             outputPath: outputDir,
             showProgress: true,
+            userInstructions: instructions,
+            apiKey,
           });
 
           // Save intermediate description result
@@ -354,6 +368,8 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
             transcriptionModel,
             outputPath: outputDir,
             showProgress: true,
+            userInstructions: instructions,
+            apiKey,
           });
 
           // Update with transcription result
@@ -390,6 +406,8 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
                   outputPath: outputDir,
                   reportName: 'meeting_summary',
                   showProgress: true,
+                  userInstructions: instructions,
+                  apiKey,
                 }
               );
               console.log('Report generated successfully:', report);

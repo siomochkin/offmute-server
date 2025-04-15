@@ -197,12 +197,22 @@ export async function generateWithGemini(
   modelName: string,
   prompt: string,
   files: FileInput[],
-  options: GenerateOptions = {}
+  options: GenerateOptions = {},
+  apiKey?: string
 ): Promise<GeminiResponse> {
   const { maxRetries = 1, retryDelayMs = 2000, temperature = 0 } = options;
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-  const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY || "");
+  // Use provided API key if available, otherwise use environment variable
+  const key = apiKey || process.env.GEMINI_API_KEY || "";
+  if (!key) {
+    return {
+      text: "",
+      error: "No Gemini API key provided. Please set GEMINI_API_KEY environment variable or provide apiKey parameter.",
+    };
+  }
+
+  const genAI = new GoogleGenerativeAI(key);
+  const fileManager = new GoogleAIFileManager(key);
 
   let lastError: Error | undefined;
 
