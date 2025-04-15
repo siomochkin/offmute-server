@@ -173,7 +173,5 @@ x64
 /test-report.md
 /test-report.json
 
-########################### MY STUFF
-
-# Custom
-uploads/
+# User uploads - important to exclude from git
+/uploads/
