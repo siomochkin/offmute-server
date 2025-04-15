@@ -15,9 +15,7 @@ RUN mkdir -p /app/uploads && \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg wget ca-certificates && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    # Set strict permissions on system files
-    chmod a-w -R /etc /lib /bin /usr/bin /usr/lib /usr/share
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
