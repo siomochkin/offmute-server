@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { generateDescription, generateTranscription, generateReport } from './index';
 import { GenerateReportResult } from './report';
+import crypto from 'crypto';
 
 // Create __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -13,6 +14,49 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 6543;
+
+// Simple rate limiting middleware
+const rateLimiter = (() => {
+  const requestCounts = new Map<string, {count: number, resetTime: number}>();
+  
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    // Get client IP
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    
+    // Allow health checks to bypass rate limiting
+    if (req.path === '/health') {
+      return next();
+    }
+    
+    const now = Date.now();
+    const windowMs = 60 * 1000; // 1 minute window
+    const maxRequestsPerWindow = 10; // Maximum requests per window
+    
+    // Initialize or get current count
+    if (!requestCounts.has(ip) || requestCounts.get(ip)!.resetTime < now) {
+      requestCounts.set(ip, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    
+    const requestData = requestCounts.get(ip)!;
+    
+    // Increment count
+    requestData.count++;
+    
+    // Check if limit exceeded
+    if (requestData.count > maxRequestsPerWindow) {
+      return res.status(429).json({ 
+        error: 'Too many requests, please try again later',
+        code: 'RATE_LIMIT_EXCEEDED'
+      });
+    }
+    
+    next();
+  };
+})();
+
+// Apply rate limiting to all requests
+app.use(rateLimiter);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -24,9 +68,10 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    // Sanitize filename
+    // Sanitize filename and use random string to prevent guessing
     const sanitizedFilename = file.originalname.replace(/[^a-zA-Z0-9_.-]/g, '_');
-    cb(null, `${Date.now()}-${sanitizedFilename}`);
+    const randomString = crypto.randomBytes(8).toString('hex');
+    cb(null, `${Date.now()}-${randomString}-${sanitizedFilename}`);
   }
 });
 
@@ -85,6 +130,13 @@ app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;");
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  
+  // Prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+  
+  // Remove sensitive headers that might leak information
+  res.removeHeader('X-Powered-By');
+  
   next();
 });
 
@@ -99,6 +151,8 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
     if (fs.statSync(path).isDirectory()) {
       return res.status(403).end('403 Forbidden');
     }
+    // Set no-cache headers for sensitive files
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   }
 }));
 app.use(express.static(path.join(__dirname, '../public')));
@@ -108,6 +162,15 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+// Validate numeric parameters
+function validateNumericParam(value: any, min: number, max: number, defaultValue: number): number {
+  const parsed = parseInt(value);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
 // Process video/audio file with streaming response
 app.post('/api/process', uploadHandler, async (req, res) => {
   try {
@@ -116,9 +179,8 @@ app.post('/api/process', uploadHandler, async (req, res) => {
     }
 
     // Validate API key - first from request, then from env
-    if (req.body.apiKey || process.env.GEMINI_API_KEY) {
-      // Either the request provides an API key or the environment has one
-    } else {
+    const apiKey = req.body.apiKey || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
       return res.status(400).json({ 
         error: 'Missing API key. You must provide a Google Gemini API key either in the request or as an environment variable.',
         code: 'MISSING_API_KEY'
@@ -126,13 +188,14 @@ app.post('/api/process', uploadHandler, async (req, res) => {
     }
 
     const filePath = req.file.path;
-    const tier = req.body.tier || 'business';
-    const screenshotCount = parseInt(req.body.screenshotCount) || 4;
-    const audioChunkMinutes = parseInt(req.body.audioChunkMinutes) || 10;
-    // Get custom instructions if provided
-    const instructions = req.body.instructions || undefined;
-    // Get API key if provided
-    const apiKey = req.body.apiKey || undefined;
+    
+    // Validate and sanitize input parameters
+    const tier = (req.body.tier || 'business').toString().toLowerCase();
+    const screenshotCount = validateNumericParam(req.body.screenshotCount, 1, 20, 4);
+    const audioChunkMinutes = validateNumericParam(req.body.audioChunkMinutes, 1, 30, 10);
+    
+    // Get custom instructions if provided and sanitize
+    const instructions = req.body.instructions ? String(req.body.instructions).slice(0, 2000) : undefined;
     
     // More robust parameter parsing for boolean values - handle various formats
     const generateReportFlag = req.body.generateReport === 'true' || 
@@ -145,6 +208,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
                            req.body.streamResponse === '1' || 
                            req.body.streamResponse === 1;
     
+    // Log sanitized parameters (without exposing API key)
     console.log('Request parameters:', {
       tier,
       screenshotCount,
@@ -152,7 +216,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
       generateReportFlag,
       streamResponse,
       instructions: instructions ? 'Provided' : 'Not provided',
-      apiKey: apiKey ? 'Provided' : 'Not provided'
+      apiKeyProvided: !!apiKey
     });
 
     // Select models based on tier - using the actual available model names
@@ -223,16 +287,20 @@ app.post('/api/process', uploadHandler, async (req, res) => {
       reportModel
     });
 
-    // Generate a job ID - use timestamp and random string
-    const jobId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+    // Generate a secure job ID with crypto randomness
+    const randomBytes = crypto.randomBytes(16).toString('hex');
+    const jobId = `${Date.now()}-${randomBytes}`;
     
-    // Create output directory
-    const outputDir = path.join(__dirname, '../uploads', `${jobId}-${path.basename(filePath, path.extname(filePath))}`);
+    // Create output directory with sanitized path to prevent path traversal
+    const sanitizedFileName = path.basename(filePath, path.extname(filePath))
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+    
+    const outputDir = path.join(__dirname, '../uploads', `${jobId}-${sanitizedFileName}`);
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
     
-    // Save job info
+    // Save job info - don't store API key
     fs.writeFileSync(
       path.join(outputDir, 'job.json'),
       JSON.stringify({
@@ -246,8 +314,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
           audioChunkMinutes,
           generateReport: generateReportFlag,
           streamResponse,
-          hasCustomInstructions: !!instructions,
-          hasCustomApiKey: !!apiKey
+          hasCustomInstructions: !!instructions
         }
       }, null, 2)
     );
@@ -401,97 +468,218 @@ app.post('/api/process', uploadHandler, async (req, res) => {
 
 // Check job status
 app.get('/api/jobs/:jobId', (req, res) => {
-  const { jobId } = req.params;
-  
-  // Look for job results or errors
-  const uploadsDir = path.join(__dirname, '../uploads');
-  const dirs = fs.readdirSync(uploadsDir);
-  
-  for (const dir of dirs) {
-    const dirPath = path.join(uploadsDir, dir);
-    const stat = fs.statSync(dirPath);
+  try {
+    // Validate and sanitize jobId parameter to prevent path traversal
+    const jobId = req.params.jobId.replace(/[^a-zA-Z0-9_-]/g, '');
     
-    if (stat.isDirectory()) {
-      // Check for result.json
-      const resultPath = path.join(dirPath, 'result.json');
-      if (fs.existsSync(resultPath)) {
-        const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-        if (result.jobId === jobId) {
-          return res.json(result);
-        }
-      }
+    if (!jobId || jobId.length < 10) {
+      return res.status(400).json({ error: 'Invalid job ID format', code: 'INVALID_JOB_ID' });
+    }
+    
+    // Look for job results or errors
+    const uploadsDir = path.join(__dirname, '../uploads');
+    
+    // Check if uploads directory exists
+    if (!fs.existsSync(uploadsDir)) {
+      return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND' });
+    }
+    
+    const dirs = fs.readdirSync(uploadsDir);
+    
+    for (const dir of dirs) {
+      // Skip directories that don't start with the jobId
+      if (!dir.startsWith(jobId)) continue;
       
-      // Check for error.json
-      const errorPath = path.join(dirPath, 'error.json');
-      if (fs.existsSync(errorPath)) {
-        const error = JSON.parse(fs.readFileSync(errorPath, 'utf8'));
-        if (error.jobId === jobId) {
-          return res.status(500).json(error);
+      const dirPath = path.join(uploadsDir, dir);
+      const stat = fs.statSync(dirPath);
+      
+      if (stat.isDirectory()) {
+        // Check for result.json
+        const resultPath = path.join(dirPath, 'result.json');
+        if (fs.existsSync(resultPath)) {
+          try {
+            const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+            if (result.jobId === jobId) {
+              return res.json(result);
+            }
+          } catch (e) {
+            console.error(`Error parsing result.json for job ${jobId}:`, e);
+            // Continue checking other files
+          }
+        }
+        
+        // Check for error.json
+        const errorPath = path.join(dirPath, 'error.json');
+        if (fs.existsSync(errorPath)) {
+          try {
+            const error = JSON.parse(fs.readFileSync(errorPath, 'utf8'));
+            if (error.jobId === jobId) {
+              return res.status(500).json(error);
+            }
+          } catch (e) {
+            console.error(`Error parsing error.json for job ${jobId}:`, e);
+            // Continue checking other files
+          }
         }
       }
     }
+    
+    // Job not found
+    res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND' });
+  } catch (error) {
+    console.error('Error checking job status:', error);
+    res.status(500).json({ 
+      error: 'An error occurred while checking job status',
+      code: 'INTERNAL_ERROR'
+    });
   }
-  
-  // Job not found
-  res.status(404).json({ error: 'Job not found' });
 });
 
 // Get specific result files
 app.get('/api/results/:jobId/:type', (req, res) => {
-  const { jobId, type } = req.params;
-  
-  // Look for job results
-  const uploadsDir = path.join(__dirname, '../uploads');
-  const dirs = fs.readdirSync(uploadsDir);
-  
-  for (const dir of dirs) {
-    const dirPath = path.join(uploadsDir, dir);
-    const stat = fs.statSync(dirPath);
+  try {
+    // Validate and sanitize jobId parameter
+    const jobId = req.params.jobId.replace(/[^a-zA-Z0-9_-]/g, '');
     
-    if (stat.isDirectory()) {
-      // Check for result.json
-      const resultPath = path.join(dirPath, 'result.json');
-      if (fs.existsSync(resultPath)) {
-        const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-        if (result.jobId === jobId) {
-          let filePath;
-          let fileName;
-          
-          switch (type) {
-            case 'description':
-              filePath = path.join(__dirname, '..', result.outputs.descriptionFile);
-              fileName = 'description.md';
-              break;
-            case 'transcription':
-              filePath = path.join(__dirname, '..', result.outputs.transcriptionFile);
-              fileName = 'transcription.md';
-              break;
-            case 'report':
-              if (!result.outputs.reportFile) {
-                return res.status(404).json({ error: 'Report not generated for this job' });
+    if (!jobId || jobId.length < 10) {
+      return res.status(400).json({ error: 'Invalid job ID format', code: 'INVALID_JOB_ID' });
+    }
+    
+    // Validate and sanitize type parameter
+    const type = req.params.type;
+    const validTypes = ['description', 'transcription', 'report'];
+    
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({ 
+        error: 'Invalid result type. Must be one of: description, transcription, report',
+        code: 'INVALID_TYPE'
+      });
+    }
+    
+    // Look for job results
+    const uploadsDir = path.join(__dirname, '../uploads');
+    const dirs = fs.readdirSync(uploadsDir);
+    
+    for (const dir of dirs) {
+      // Skip directories that don't start with the jobId
+      if (!dir.startsWith(jobId)) continue;
+      
+      const dirPath = path.join(uploadsDir, dir);
+      const stat = fs.statSync(dirPath);
+      
+      if (stat.isDirectory()) {
+        // Check for result.json
+        const resultPath = path.join(dirPath, 'result.json');
+        if (fs.existsSync(resultPath)) {
+          try {
+            const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+            if (result.jobId === jobId) {
+              let filePath;
+              let fileName;
+              
+              switch (type) {
+                case 'description':
+                  filePath = path.join(__dirname, '..', result.outputs.descriptionFile);
+                  fileName = 'description.md';
+                  break;
+                case 'transcription':
+                  filePath = path.join(__dirname, '..', result.outputs.transcriptionFile);
+                  fileName = 'transcription.md';
+                  break;
+                case 'report':
+                  if (!result.outputs.reportFile) {
+                    return res.status(404).json({ error: 'Report not generated for this job' });
+                  }
+                  filePath = path.join(__dirname, '..', result.outputs.reportFile);
+                  fileName = 'report.md';
+                  break;
+                default:
+                  return res.status(400).json({ error: 'Invalid result type' });
               }
-              filePath = path.join(__dirname, '..', result.outputs.reportFile);
-              fileName = 'report.md';
-              break;
-            default:
-              return res.status(400).json({ error: 'Invalid result type' });
-          }
-          
-          if (fs.existsSync(filePath)) {
-            res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-            res.setHeader('Content-Type', 'text/markdown');
-            return res.sendFile(filePath);
-          } else {
-            return res.status(404).json({ error: 'Result file not found' });
+              
+              // Validate the file path is still within the uploads directory to prevent path traversal
+              const normalizedFilePath = path.normalize(filePath);
+              const normalizedUploadsDir = path.normalize(path.join(__dirname, '../uploads'));
+              
+              if (!normalizedFilePath.startsWith(normalizedUploadsDir)) {
+                return res.status(403).json({ error: 'Access denied', code: 'FORBIDDEN' });
+              }
+              
+              if (fs.existsSync(filePath)) {
+                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                res.setHeader('Content-Type', 'text/markdown');
+                return res.sendFile(filePath);
+              } else {
+                return res.status(404).json({ error: 'Result file not found' });
+              }
+            }
+          } catch (e) {
+            console.error(`Error processing result for job ${jobId}:`, e);
+            return res.status(500).json({ 
+              error: 'An error occurred while processing the result',
+              code: 'INTERNAL_ERROR'
+            });
           }
         }
       }
     }
+    
+    // Job not found
+    res.status(404).json({ error: 'Job not found' });
+  } catch (error) {
+    console.error('Error retrieving result:', error);
+    res.status(500).json({ 
+      error: 'An error occurred while retrieving the result',
+      code: 'INTERNAL_ERROR'
+    });
   }
-  
-  // Job not found
-  res.status(404).json({ error: 'Job not found' });
 });
+
+// Cleanup old jobs - run every day
+const ONE_DAY = 24 * 60 * 60 * 1000;
+const JOB_RETENTION_DAYS = 7; // Keep jobs for 7 days
+
+function cleanupOldJobs() {
+  try {
+    console.log('Running cleanup of old jobs...');
+    const uploadsDir = path.join(__dirname, '../uploads');
+    
+    if (!fs.existsSync(uploadsDir)) {
+      console.log('Uploads directory does not exist, skipping cleanup');
+      return;
+    }
+    
+    const now = Date.now();
+    const dirs = fs.readdirSync(uploadsDir);
+    
+    for (const dir of dirs) {
+      const dirPath = path.join(uploadsDir, dir);
+      const stat = fs.statSync(dirPath);
+      
+      if (stat.isDirectory()) {
+        // Extract timestamp from directory name (format: timestamp-randomstring)
+        const match = dir.match(/^(\d+)-/);
+        if (match) {
+          const timestamp = parseInt(match[1]);
+          
+          // If directory is older than retention period, delete it
+          if (now - timestamp > JOB_RETENTION_DAYS * ONE_DAY) {
+            try {
+              fs.rmSync(dirPath, { recursive: true, force: true });
+              console.log(`Removed old job directory: ${dir}`);
+            } catch (err) {
+              console.error(`Failed to remove old job directory ${dir}:`, err);
+            }
+          }
+        }
+      }
+    }
+    
+    console.log('Cleanup completed');
+  } catch (err) {
+    console.error('Error during cleanup:', err);
+  }
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -523,6 +711,11 @@ app.listen(port, () => {
       console.error('Failed to create uploads directory:', err);
     }
   }
+  
+  // Schedule cleanup to run every day
+  setInterval(cleanupOldJobs, ONE_DAY);
+  // Run cleanup at startup
+  setTimeout(cleanupOldJobs, 60000); // Wait 1 minute after startup
 });
 
 export { app };
