@@ -24,7 +24,9 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    // Sanitize filename
+    const sanitizedFilename = file.originalname.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    cb(null, `${Date.now()}-${sanitizedFilename}`);
   }
 });
 
@@ -75,10 +77,30 @@ const uploadHandler = (req, res, next) => {
   });
 };
 
+// Security middleware
+app.use((req, res, next) => {
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;");
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// Trust proxy - important for running behind reverse proxy
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
+  setHeaders: (res, path) => {
+    // Prevent directory listing
+    if (fs.statSync(path).isDirectory()) {
+      return res.status(403).end('403 Forbidden');
+    }
+  }
+}));
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Routes
@@ -91,6 +113,16 @@ app.post('/api/process', uploadHandler, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Validate API key - first from request, then from env
+    if (req.body.apiKey || process.env.GEMINI_API_KEY) {
+      // Either the request provides an API key or the environment has one
+    } else {
+      return res.status(400).json({ 
+        error: 'Missing API key. Please provide a Gemini API key either as an environment variable or in the request',
+        code: 'MISSING_API_KEY'
+      });
     }
 
     const filePath = req.file.path;
@@ -129,9 +161,20 @@ app.post('/api/process', uploadHandler, async (req, res) => {
     let mergeModel = 'gemini-1.5-flash';
     let transcriptionModel = 'gemini-1.5-flash';
     let reportModel = 'gemini-1.5-flash';
+    
+    // Validate tier
+    const validTiers = ['first', 'business', 'economy', 'budget', 'experimental'];
+    if (!validTiers.includes(tier)) {
+      return res.status(400).json({
+        error: `Invalid tier. Must be one of: ${validTiers.join(', ')}`,
+        code: 'INVALID_TIER'
+      });
+    }
 
+    // Select models based on tier
     switch (tier) {
       case 'first':
+        // Top tier uses Pro models for everything
         screenshotModel = 'gemini-1.5-pro';
         audioModel = 'gemini-1.5-pro';
         mergeModel = 'gemini-1.5-pro';
@@ -139,6 +182,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
         reportModel = 'gemini-1.5-pro';
         break;
       case 'business':
+        // Business tier uses Pro for description/reports, Flash for transcription
         screenshotModel = 'gemini-1.5-pro';
         audioModel = 'gemini-1.5-pro';
         mergeModel = 'gemini-1.5-pro';
@@ -146,18 +190,28 @@ app.post('/api/process', uploadHandler, async (req, res) => {
         reportModel = 'gemini-1.5-pro';
         break;
       case 'economy':
-        // Already set to flash models
+        // Economy tier uses Flash models for everything
+        screenshotModel = 'gemini-1.5-flash';
+        audioModel = 'gemini-1.5-flash';
+        mergeModel = 'gemini-1.5-flash';
+        transcriptionModel = 'gemini-1.5-flash';
+        reportModel = 'gemini-1.5-flash';
         break;
       case 'budget':
-        transcriptionModel = 'gemini-2.0-flash-lite';
-        reportModel = 'gemini-2.0-flash-lite';
+        // Budget tier uses Flash for description, Flash Lite for transcription/report
+        screenshotModel = 'gemini-1.5-flash';
+        audioModel = 'gemini-1.5-flash';
+        mergeModel = 'gemini-1.5-flash';
+        transcriptionModel = 'gemini-pro';
+        reportModel = 'gemini-pro';
         break;
       case 'experimental':
-        screenshotModel = 'gemini-2.5-pro-preview-03-25';
-        audioModel = 'gemini-2.5-pro-preview-03-25';
-        mergeModel = 'gemini-2.5-pro-preview-03-25';
-        transcriptionModel = 'gemini-2.5-pro-preview-03-25';
-        reportModel = 'gemini-2.5-pro-preview-03-25';
+        // Experimental tier - try new models
+        screenshotModel = 'models/gemini-1.5-pro-latest';
+        audioModel = 'models/gemini-1.5-pro-latest';
+        mergeModel = 'models/gemini-1.5-pro-latest';
+        transcriptionModel = 'models/gemini-1.5-pro-latest';
+        reportModel = 'models/gemini-1.5-pro-latest';
         break;
     }
     
@@ -169,229 +223,45 @@ app.post('/api/process', uploadHandler, async (req, res) => {
       reportModel
     });
 
-    // Generate output directory
-    const outputDir = path.join(__dirname, '../uploads', path.basename(filePath, path.extname(filePath)));
+    // Generate a job ID - use timestamp and random string
+    const jobId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+    
+    // Create output directory
+    const outputDir = path.join(__dirname, '../uploads', `${jobId}-${path.basename(filePath, path.extname(filePath))}`);
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
-
-    // Start processing
-    const jobId = Date.now().toString();
     
-    if (streamResponse) {
-      // Setup for streaming response
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.flushHeaders();
-
-      // Helper function to send SSE updates
-      const sendUpdate = (data: any) => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-      };
-
-      // Send initial status
-      sendUpdate({
-        message: 'Processing started',
+    // Save job info
+    fs.writeFileSync(
+      path.join(outputDir, 'job.json'),
+      JSON.stringify({
         jobId,
         status: 'processing',
         inputFile: req.file.originalname,
-        progress: 5
+        startedAt: new Date().toISOString(),
+        parameters: {
+          tier,
+          screenshotCount,
+          audioChunkMinutes,
+          generateReport: generateReportFlag,
+          streamResponse,
+          hasCustomInstructions: !!instructions,
+          hasCustomApiKey: !!apiKey
+        }
+      }, null, 2)
+    );
+    
+    // For non-streaming response, immediately return job info
+    if (!streamResponse) {
+      res.json({
+        message: 'Processing started',
+        jobId,
+        status: 'processing',
+        inputFile: req.file.originalname
       });
       
-      try {
-        // Step 1: Generate description
-        // Send a mid-processing update
-        setTimeout(() => {
-          sendUpdate({
-            jobId,
-            status: 'processing',
-            progress: 15,
-            message: 'Analyzing audio content...'
-          });
-        }, 2000);
-
-        const description = await generateDescription(filePath, {
-          screenshotModel,
-          audioModel,
-          mergeModel,
-          screenshotCount,
-          transcriptionChunkMinutes: audioChunkMinutes,
-          descriptionChunkMinutes: audioChunkMinutes * 2,
-          outputPath: outputDir,
-          showProgress: true,
-          userInstructions: instructions,
-          apiKey,
-        });
-
-        // Save intermediate description result
-        const intermediateResult = {
-          jobId,
-          status: 'description_complete',
-          progress: 40,
-          inputFile: req.file ? req.file.originalname : path.basename(filePath),
-          description: description.finalDescription,
-          outputs: {
-            descriptionFile: path.relative(path.join(__dirname, '..'), path.join(outputDir, `${path.basename(filePath, path.extname(filePath))}_description.md`)),
-          },
-          downloadLinks: {
-            description: `/api/results/${jobId}/description`,
-          },
-          transcription: {
-            status: 'in_progress'
-          }
-        };
-
-        fs.writeFileSync(
-          path.join(outputDir, 'result.json'),
-          JSON.stringify(intermediateResult, null, 2)
-        );
-
-        // Send description update
-        sendUpdate(intermediateResult);
-
-        // Send a mid-processing update
-        setTimeout(() => {
-          sendUpdate({
-            jobId,
-            status: 'processing',
-            progress: 60,
-            message: 'Generating transcription...'
-          });
-        }, 2000);
-
-        // Step 2: Generate transcription
-        const transcription = await generateTranscription(filePath, description, {
-          transcriptionModel,
-          outputPath: outputDir,
-          showProgress: true,
-          userInstructions: instructions,
-          apiKey,
-        });
-
-        // Update with transcription result
-        const transcriptionResult = {
-          jobId,
-          status: 'transcription_complete',
-          progress: 80,
-          inputFile: req.file ? req.file.originalname : path.basename(filePath),
-          description: description.finalDescription,
-          transcription: transcription.chunkTranscriptions.join('\n\n'),
-          outputs: {
-            descriptionFile: path.relative(path.join(__dirname, '..'), path.join(outputDir, `${path.basename(filePath, path.extname(filePath))}_description.md`)),
-            transcriptionFile: path.relative(path.join(__dirname, '..'), transcription.transcriptionPath),
-          },
-          downloadLinks: {
-            description: `/api/results/${jobId}/description`,
-            transcription: `/api/results/${jobId}/transcription`,
-          },
-          report: generateReportFlag ? { status: 'in_progress' } : { status: 'not_requested' }
-        };
-
-        fs.writeFileSync(
-          path.join(outputDir, 'result.json'),
-          JSON.stringify(transcriptionResult, null, 2)
-        );
-
-        // Send transcription update
-        sendUpdate(transcriptionResult);
-
-        // Step 3: Generate report if requested
-        let report: GenerateReportResult | undefined = undefined;
-        if (generateReportFlag) {
-          // Send a mid-processing update
-          sendUpdate({
-            jobId,
-            status: 'processing',
-            progress: 90,
-            message: 'Creating technical report...'
-          });
-
-          console.log('Generating report (streaming mode)...');
-          try {
-            report = await generateReport(
-              description.finalDescription,
-              transcription.chunkTranscriptions.join('\n\n'),
-              {
-                model: reportModel,
-                outputPath: outputDir,
-                reportName: 'meeting_summary',
-                showProgress: true,
-                userInstructions: instructions,
-                apiKey,
-              }
-            );
-            console.log('Report generated successfully (streaming mode):', report);
-          } catch (reportError) {
-            console.error('Error generating report (streaming mode):', reportError);
-          }
-        } else {
-          console.log('Report generation skipped (not requested) in streaming mode');
-        }
-
-        // Create final result summary
-        const resultSummary = {
-          jobId,
-          status: 'completed',
-          progress: 100,
-          inputFile: req.file ? req.file.originalname : path.basename(filePath),
-          description: description.finalDescription,
-          transcription: transcription.chunkTranscriptions.join('\n\n'),
-          report: report ? fs.readFileSync(report.reportPath, 'utf-8') : null,
-          outputs: {
-            descriptionFile: path.relative(path.join(__dirname, '..'), path.join(outputDir, `${path.basename(filePath, path.extname(filePath))}_description.md`)),
-            transcriptionFile: path.relative(path.join(__dirname, '..'), transcription.transcriptionPath),
-            reportFile: report ? path.relative(path.join(__dirname, '..'), report.reportPath) : null,
-          },
-          downloadLinks: {
-            description: `/api/results/${jobId}/description`,
-            transcription: `/api/results/${jobId}/transcription`,
-            report: report ? `/api/results/${jobId}/report` : null,
-          }
-        };
-
-        // Save result summary
-        fs.writeFileSync(
-          path.join(outputDir, 'result.json'),
-          JSON.stringify(resultSummary, null, 2)
-        );
-
-        // Send final update and end the stream
-        sendUpdate(resultSummary);
-        res.end();
-
-      } catch (error) {
-        console.error('Processing error:', error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        // Save error info
-        fs.writeFileSync(
-          path.join(outputDir, 'error.json'),
-          JSON.stringify({
-            jobId,
-            status: 'failed',
-            error: errorMessage,
-            timestamp: new Date().toISOString()
-          }, null, 2)
-        );
-
-        // Send error to client and end stream
-        sendUpdate({
-          status: 'failed',
-          error: errorMessage
-        });
-        res.end();
-      }
-    } else {
-      // Non-streaming response (traditional async job)
-      res.status(202).json({
-        message: 'Processing started',
-        jobId,
-        status: 'processing',
-        inputFile: req.file.originalname,
-      });
-
-      // Process in background
+      // Continue processing in the background
       (async () => {
         try {
           // Step 1: Generate description
@@ -623,9 +493,34 @@ app.get('/api/results/:jobId/:type', (req, res) => {
   res.status(404).json({ error: 'Job not found' });
 });
 
-// Start the server
-app.listen(port, () => {
-  console.log(`Offmute API running on port ${port}`);
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    version: process.env.npm_package_version || '0.0.5',
+    uptime: process.uptime()
+  });
 });
 
-export default app;
+// Start server and report status
+app.listen(port, () => {
+  console.log(`OffMute API server is running on http://localhost:${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn('⚠️ Warning: GEMINI_API_KEY environment variable not set. Users must provide their own API key.');
+  }
+  
+  // Check for uploads directory and create if not exists
+  const uploadsDir = path.join(__dirname, '../uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    try {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      console.log('Created uploads directory at', uploadsDir);
+    } catch (err) {
+      console.error('Failed to create uploads directory:', err);
+    }
+  }
+});
+
+export { app };

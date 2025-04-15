@@ -187,3 +187,134 @@ const report = combineResults(sections);
 You can start in `TODOs.md` to help with things I'm thinking about, or you can steel yourself and check out `PROBLEMS.md`.
 
 Created by [Hrishi Olickel](https://twitter.com/hrishioa) • Support offmute by starring our [GitHub repository](https://github.com/southbridgeai/offmute)
+
+# OffMute Server - Unraid Docker Setup Guide
+
+This guide provides instructions for setting up OffMute Server in Unraid using Docker.
+
+## Overview
+
+OffMute is a privacy-focused service that provides intelligent transcription, diarization, and analysis of meeting recordings using Google's Gemini AI models. It processes audio and video files to:
+
+- Transcribe speech with speaker identification
+- Generate meeting descriptions
+- Create structured reports with key points and action items
+- Extract and analyze visual content from video meetings
+
+## Requirements
+
+- Unraid server (6.9.0+)
+- Docker already installed on Unraid
+- Google Gemini API key
+- Reverse proxy (recommended for secure access)
+
+## Installation in Unraid
+
+### Method 1: Using Docker Compose
+
+1. SSH into your Unraid server
+2. Create a directory for OffMute:
+   ```bash
+   mkdir -p /mnt/user/appdata/offmute
+   cd /mnt/user/appdata/offmute
+   ```
+3. Download the docker-compose.yml file:
+   ```bash
+   wget https://raw.githubusercontent.com/siomochkin/offmute-server/master/docker-compose.yml
+   ```
+4. Create a `.env` file:
+   ```bash
+   echo "GEMINI_API_KEY=your_key_here" > .env
+   ```
+5. Run the container:
+   ```bash
+   docker-compose up -d
+   ```
+
+### Method 2: Using Unraid Docker Manager UI
+
+1. Go to the **Docker** tab in your Unraid web interface
+2. Click **Add Container**
+3. Enter the following information:
+   - **Name**: offmute
+   - **Repository**: siomochkin/offmute-server:latest
+   - Add port mapping:
+     - **Host Port**: 6543
+     - **Container Port**: 6543
+   - Add variable:
+     - **Name**: GEMINI_API_KEY
+     - **Value**: your_gemini_api_key
+     - **Description**: Google Gemini API Key
+   - Add path mapping:
+     - **Host Path**: /mnt/user/appdata/offmute/uploads
+     - **Container Path**: /app/uploads
+     - **Description**: Persistent storage for uploads
+
+4. Click **Apply**
+
+## Accessing OffMute
+
+After installation, OffMute is available at:
+
+- **Local Access**: http://your-unraid-ip:6543
+- **With Reverse Proxy**: https://offmute.yourdomain.com (after configuring reverse proxy)
+
+## Setting Up Reverse Proxy
+
+### Using Swag/NGINX in Unraid
+
+Add the following configuration to your NGINX site config:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name offmute.yourdomain.com;
+
+    # SSL configuration
+    include /config/nginx/ssl.conf;
+
+    # Proxy settings
+    location / {
+        include /config/nginx/proxy.conf;
+        proxy_pass http://unraid-ip:6543;
+    }
+
+    # Large file uploads - adjust if needed
+    client_max_body_size 2000M;
+}
+```
+
+## Security Considerations
+
+1. **API Key Protection**:
+   - Your Gemini API key is stored in the Unraid Docker environment variables
+   - Never expose your API key in client-side code
+
+2. **File Security**:
+   - All uploaded files are stored in the mapped volume
+   - Permissions are controlled by the container
+
+3. **Network Security**:
+   - Use a reverse proxy with SSL for secure access
+   - Consider adding authentication through your reverse proxy
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Container won't start**:
+   - Check if the GEMINI_API_KEY environment variable is set
+   - Verify the volume paths exist and have correct permissions
+
+2. **Upload errors**:
+   - Ensure your reverse proxy allows large file uploads (client_max_body_size)
+   - Check if the uploads directory has enough free space
+
+3. **Processing failures**:
+   - Check container logs: `docker logs offmute`
+   - Verify your Gemini API key is valid and has enough quota
+
+## Getting Help
+
+- GitHub Issues: [offmute-server Issues](https://github.com/siomochkin/offmute-server/issues)
+- Documentation: See the [DOCKER_API_README.md](https://github.com/siomochkin/offmute-server/blob/master/DOCKER_API_README.md) for API usage

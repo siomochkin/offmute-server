@@ -7,5 +7,19 @@ services:
       - "6543:6543"
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PORT=6543
+      - NODE_ENV=production
     volumes:
-      - ./uploads:/app/uploads
+      - offmute_uploads:/app/uploads
+    restart: unless-stopped
+    # Add healthcheck to ensure container is running properly
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6543"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  offmute_uploads:
+    # Use named volume for persistent data

@@ -2,5 +2,14 @@ node_modules
 npm-debug.log
 uploads
 .git
+.github
 .gitignore
 .env
+.env.*
+*.md
+!README.md
+!DOCKER_API_README.md
+.DS_Store
+*.log
+dist
+tests
