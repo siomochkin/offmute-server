@@ -20,6 +20,7 @@ interface GenerateDescriptionOptions {
   mergeModel: string;
   outputPath?: string;
   showProgress?: boolean;
+  userInstructions?: string;
 }
 
 export interface GenerateDescriptionResult {
