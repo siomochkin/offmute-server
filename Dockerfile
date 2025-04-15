@@ -17,8 +17,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production
+# Install ALL dependencies (including dev dependencies) for build process
+RUN npm install
 
 # Copy source files
 COPY . .
@@ -26,11 +26,13 @@ COPY . .
 # Create uploads directory with proper permissions
 RUN chown -R offmute:offmute /app
 
+# Build the application
+RUN npm run build && \
+    # Clean up dev dependencies after build
+    npm prune --production
+
 # Switch to non-root user
 USER offmute
-
-# Build the application
-RUN npm run build
 
 # Set environment variables
 ENV NODE_ENV=production
