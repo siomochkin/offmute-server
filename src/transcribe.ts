@@ -8,6 +8,7 @@ interface TranscriptionOptions {
   transcriptionModel: string;
   outputPath?: string;
   showProgress?: boolean;
+  userInstructions?: string;
 }
 
 interface TranscriptionResult {
@@ -75,6 +76,7 @@ export async function generateTranscription(
     transcriptionModel,
     outputPath = path.dirname(inputFile),
     showProgress = false,
+    userInstructions,
   } = options;
 
   // Create output directory if it doesn't exist
@@ -131,7 +133,8 @@ export async function generateTranscription(
       descriptionResult.finalDescription,
       i + 1,
       chunkCount,
-      previousTranscription
+      previousTranscription,
+      userInstructions
     );
 
     try {

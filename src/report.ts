@@ -14,6 +14,7 @@ interface GenerateReportOptions {
   outputPath: string;
   reportName: string;
   showProgress?: boolean;
+  userInstructions?: string;
 }
 
 export interface GenerateReportResult {
@@ -94,7 +95,7 @@ export async function generateReport(
   transcript: string,
   options: GenerateReportOptions
 ): Promise<GenerateReportResult> {
-  const { model, outputPath, reportName, showProgress = false } = options;
+  const { model, outputPath, reportName, showProgress = false, userInstructions } = options;
 
   // Create report directory under outputPath
   const reportDir = path.join(outputPath, "report");
@@ -108,13 +109,14 @@ export async function generateReport(
     }
 
     // Save initial prompts
-    const headingsPrompt = REPORT_HEADINGS_PROMPT(descriptions, transcript);
+    const headingsPrompt = REPORT_HEADINGS_PROMPT(descriptions, transcript, userInstructions);
     await saveReportOutput(reportDir, {
       step: "initial_prompt",
       prompt: headingsPrompt,
       data: {
         descriptions,
         transcript,
+        userInstructions,
       },
     });
 
@@ -165,7 +167,8 @@ export async function generateReport(
           headings,
           section,
           transcript,
-          descriptions
+          descriptions,
+          userInstructions
         );
 
         // Save section prompt

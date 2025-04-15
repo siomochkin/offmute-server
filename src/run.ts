@@ -36,6 +36,12 @@ const MODEL_TIERS = {
     report: "gemini-2.0-flash-lite-preview-02-05",
     label: "Budget Tier (Flash for description, Flash Lite for transcription)",
   },
+  experimental: {
+    description: "gemini-2.5-pro-preview-03-25",
+    transcription: "gemini-2.5-pro-preview-03-25",
+    report: "gemini-2.5-pro-preview-03-25",
+    label: "Experimental Tier (Gemini 2.5 Pro Preview)",
+  },
 } as const;
 
 function getVideoDuration(filePath: string): Promise<number> {
@@ -82,19 +88,39 @@ async function processFile(
   inputFile: string,
   tier: keyof typeof MODEL_TIERS,
   saveIntermediates: boolean,
+  intermediatesDir: string | null,
   screenshotCount: number,
   audioChunkMinutes: number,
   generateReports: boolean,
-  reportsDir?: string
+  reportsDir?: string,
+  userInstructions?: string
 ): Promise<void> {
   const inputBaseName = path.basename(inputFile, path.extname(inputFile));
-  const outputDir = saveIntermediates
-    ? path.join(path.dirname(inputFile), `${inputBaseName}_intermediates`)
-    : undefined;
+  
+  // Determine where to store intermediates
+  let outputDir: string | undefined = undefined;
+  if (saveIntermediates) {
+    // If user specified a directory, use that
+    if (intermediatesDir) {
+      outputDir = path.join(intermediatesDir, inputBaseName);
+    } else {
+      // Otherwise use the input file's directory
+      outputDir = path.join(
+        path.dirname(inputFile),
+        `.offmute_${inputBaseName}`
+      );
+    }
+  }
 
   const startTime = Date.now();
   console.log(`\nProcessing: ${inputFile}`);
   console.log(`Using: ${MODEL_TIERS[tier].label}`);
+  if (userInstructions) {
+    console.log(`Custom instructions: ${userInstructions}`);
+  }
+  if (saveIntermediates) {
+    console.log(`Saving intermediates to: ${outputDir}`);
+  }
 
   try {
     const videoDuration = await getVideoDuration(inputFile);
@@ -107,6 +133,7 @@ async function processFile(
       mergeModel: MODEL_TIERS[tier].description,
       outputPath: outputDir,
       showProgress: true,
+      userInstructions,
     });
 
     const transcriptionResult = await generateTranscription(
@@ -116,6 +143,7 @@ async function processFile(
         transcriptionModel: MODEL_TIERS[tier].transcription,
         outputPath: path.dirname(inputFile),
         showProgress: true,
+        userInstructions,
       }
     );
 
@@ -134,6 +162,7 @@ async function processFile(
           outputPath: reportOutputPath,
           reportName: `${inputBaseName}_report`,
           showProgress: true,
+          userInstructions,
         }
       );
 
@@ -149,6 +178,15 @@ async function processFile(
       )}s per minute)`
     );
     console.log(`Transcription: ${transcriptionResult.transcriptionPath}`);
+    
+    // Clean up temp directory if we're not saving intermediates
+    if (!saveIntermediates && outputDir) {
+      try {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      } catch (err) {
+        // Silently ignore errors during cleanup
+      }
+    }
   } catch (error) {
     console.error(
       chalk.red(`Error processing ${inputFile}:`),
@@ -181,13 +219,17 @@ async function run() {
     .argument("<input>", "Input video file or directory path")
     .option(
       "-t, --tier <tier>",
-      "Processing tier (first, business, economy, budget)",
+      "Processing tier (first, business, economy, budget, experimental)",
       "business"
     )
     .option(
-      "-a, --all",
-      "Save all intermediate outputs in separate folders",
+      "-s, --save-intermediates",
+      "Save intermediate processing files",
       false
+    )
+    .option(
+      "-id, --intermediates-dir <path>",
+      "Custom directory for intermediate output (defaults to input file location)"
     )
     .option(
       "-sc, --screenshot-count <number>",
@@ -204,6 +246,10 @@ async function run() {
       "-rd, --reports-dir <path>",
       "Custom directory for report output (defaults to input file location)"
     )
+    .option(
+      "-i, --instructions <text>",
+      "Custom context or instructions to include in AI prompts"
+    )
     .version("1.0.0");
 
   program.parse();
@@ -217,13 +263,21 @@ async function run() {
   const options = program.opts();
   const input = program.args[0];
 
-  if (!input || !MODEL_TIERS[options.tier as keyof typeof MODEL_TIERS]) {
-    console.error(chalk.red("Error: Invalid input path or tier selection"));
-    console.log(chalk.yellow("\nAvailable tiers:"));
-    Object.entries(MODEL_TIERS).forEach(([key, value]) => {
-      console.log(chalk.cyan(`- ${key}: ${value.label}`));
-    });
+  if (
+    !["first", "business", "economy", "budget", "experimental"].includes(
+      options.tier
+    )
+  ) {
+    console.error(
+      chalk.red(`Invalid tier: ${options.tier}. Available tiers:`),
+      Object.keys(MODEL_TIERS).join(", ")
+    );
     process.exit(1);
+  }
+
+  // Create intermediates directory if specified
+  if (options.intermediatesDir) {
+    fs.mkdirSync(options.intermediatesDir, { recursive: true });
   }
 
   // Create reports directory if specified
@@ -259,11 +313,13 @@ async function run() {
       await processFile(
         file,
         options.tier as keyof typeof MODEL_TIERS,
-        options.all,
+        options.saveIntermediates,
+        options.intermediatesDir,
         parseInt(options.screenshotCount),
         parseInt(options.audioChunkMinutes),
         options.report,
-        options.reportsDir
+        options.reportsDir,
+        options.instructions
       );
       results.success++;
     } catch (error) {

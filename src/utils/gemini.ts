@@ -108,10 +108,17 @@ async function processGenerationAttempt(
   const uploadedFiles: Array<{ name: string }> = [];
 
   try {
+    // Determine max output tokens based on model
+    let maxOutputTokens = 8192; // Default for most models
+    if (modelName.includes("gemini-2.5")) {
+      // Gemini 2.5 models support larger output
+      maxOutputTokens = 65536;
+    }
+
     const modelConfig: any = {
       model: modelName,
       generationConfig: {
-        maxOutputTokens: 8192,
+        maxOutputTokens,
         temperature,
       },
     };

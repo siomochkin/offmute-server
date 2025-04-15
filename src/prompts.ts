@@ -34,7 +34,7 @@ Here are the descriptions for a meeting, generated from information (audio/image
 4. If this is not a meeting, provide any additional information that can help describe what this is.`
 
 // prettier-ignore
-export const TRANSCRIPTION_PROMPT = (description: string, count: number, total: number, previousTranscription: string) =>
+export const TRANSCRIPTION_PROMPT = (description: string, count: number, total: number, previousTranscription: string, userInstructions?: string) =>
 `Provided is (${count}/${total}) of the audio of a meeting.
 
 Here is the general description of the meeting:
@@ -43,6 +43,8 @@ ${description}
 ${previousTranscription ?
 `Here is the transcription from the previous chunk:\n\n...${previousTranscription}\n...` : ""}
 
+${userInstructions ? `User Instructions: ${userInstructions}\n` : ""}
+
 Please diarize and transcribe this audio segment with all the speakers identified and named when possible. Format the output as:
 ~[Speaker Name]~: Transcribed text
 
@@ -50,7 +52,7 @@ ${previousTranscription ?
 `Continue where the previous transcription left off.` : ""}`
 
 // prettier-ignore
-export const REPORT_HEADINGS_PROMPT = (descriptions: string, transcript: string) =>
+export const REPORT_HEADINGS_PROMPT = (descriptions: string, transcript: string, userInstructions?: string) =>
 `Meeting Descriptions:
 \`\`\`
 ${descriptions}
@@ -60,6 +62,8 @@ Transcript:
 \`\`\`
 ${transcript}
 \`\`\`
+
+${userInstructions ? `User Instructions: ${userInstructions}\n` : ""}
 
 Here are the descriptions and transcript of a meeting or call. We want to turn this into a proper one-pager summary document. Respond with json in this typespec representing the headings and subheadings of the final one-page report, with a one-sentence description. Some things to make sure we cover (in their own section or not) are:
 * Useful contacts - companies, people etc
@@ -134,7 +138,7 @@ export const REPORT_HEADINGS_JSONSCHEMA = {
 };
 
 // prettier-ignore
-export const REPORT_SECTION_GENERATION_PROMPT = (headings: ReportHeadings, section: ReportSection, transcript: string, descriptions: string) =>
+export const REPORT_SECTION_GENERATION_PROMPT = (headings: ReportHeadings, section: ReportSection, transcript: string, descriptions: string, userInstructions?: string) =>
 `Meeting Descriptions:
 \`\`\`
 ${descriptions}
@@ -144,6 +148,8 @@ Transcript:
 \`\`\`
 ${transcript}
 \`\`\`
+
+${userInstructions ? `User Instructions: ${userInstructions}\n` : ""}
 
 Here are the descriptions and transcript of a meeting or call. We want to turn this into a proper one-pager summary document. Respond with json representing the headings and subheadings of the final one-page report.
 
