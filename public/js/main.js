@@ -15,10 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelBtn = document.getElementById('cancelBtn');
     const contentDescriptionCheckbox = document.getElementById('contentDescription');
     const transcriptionCheckbox = document.getElementById('transcription');
-    const technicalReportCheckbox = document.getElementById('technicalReport');
+    const meetingReportCheckbox = document.getElementById('meetingReport');
     const contentDescriptionResult = document.getElementById('contentDescriptionResult');
     const transcriptionResult = document.getElementById('transcriptionResult');
-    const technicalReportResult = document.getElementById('technicalReportResult');
+    const meetingReportResult = document.getElementById('meetingReportResult');
     const newProcessButton = document.getElementById('newProcessButton');
     const downloadButton = document.getElementById('downloadButton');
     const uploadLabel = document.querySelector('.file-input-container label');
@@ -60,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Checkbox listeners for enabling/disabling process button
-    [contentDescriptionCheckbox, transcriptionCheckbox, technicalReportCheckbox].forEach(checkbox => {
+    [contentDescriptionCheckbox, transcriptionCheckbox, meetingReportCheckbox].forEach(checkbox => {
         checkbox.addEventListener('change', updateSubmitButtonState);
     });
 
@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Check if at least one processing option is selected
         const isOptionSelected = contentDescriptionCheckbox.checked || 
                                  transcriptionCheckbox.checked || 
-                                 technicalReportCheckbox.checked;
+                                 meetingReportCheckbox.checked;
         
         // Check if API key is provided
         const isApiKeyProvided = apiKey.value.trim().length > 0;
@@ -174,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!selectedFile || isProcessing) return;
         
         // Check if at least one option is selected
-        if (!contentDescriptionCheckbox.checked && !transcriptionCheckbox.checked && !technicalReportCheckbox.checked) {
+        if (!contentDescriptionCheckbox.checked && !transcriptionCheckbox.checked && !meetingReportCheckbox.checked) {
             alert('Please select at least one processing option.');
             return;
         }
@@ -223,7 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     tier: tierSelect.value,
                     screenshotCount: screenshotCount.value,
                     audioChunkMinutes: audioChunkMinutes.value,
-                    generateReport: technicalReportCheckbox.checked ? 'true' : 'false',
+                    generateReport: meetingReportCheckbox.checked ? 'true' : 'false',
                     streamResponse: streamResponse.checked ? 'true' : 'false',
                     
                     // Include API key and instructions if provided
@@ -602,7 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     displayPartialResults({
                         contentDescription: window.receivedContent.description || data.description,
                         transcription: window.receivedContent.transcription || data.transcription,
-                        technicalReport: data.report
+                        meetingReport: data.report
                     });
                     // Store for later use
                     window.receivedContent.report = data.report;
@@ -651,13 +651,13 @@ document.addEventListener('DOMContentLoaded', () => {
             content.innerHTML = `<p>${data.transcription}</p>`;
         }
         
-        if (data.technicalReport) {
-            console.log('Showing partial technical report');
-            technicalReportResult.classList.remove('hidden');
-            const content = technicalReportResult.querySelector('.result-content');
+        if (data.meetingReport) {
+            console.log('Showing partial meeting report');
+            meetingReportResult.classList.remove('hidden');
+            const content = meetingReportResult.querySelector('.result-content');
             
             // Format the report content for better display
-            let formattedReport = data.technicalReport
+            let formattedReport = data.meetingReport
                 .replace(/^# (.*$)/gm, '<h1>$1</h1>')
                 .replace(/^## (.*$)/gm, '<h2>$1</h2>')
                 .replace(/^### (.*$)/gm, '<h3>$1</h3>');
@@ -711,8 +711,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Report
         if (result.report) {
             console.log('Report content available, length:', result.report.length);
-            technicalReportResult.classList.remove('hidden');
-            const content = technicalReportResult.querySelector('.result-content');
+            meetingReportResult.classList.remove('hidden');
+            const content = meetingReportResult.querySelector('.result-content');
             
             // Format the report content for better display
             // Convert markdown headings to HTML
@@ -761,7 +761,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         
-        if (technicalReportCheckbox.checked && !technicalReportResult.classList.contains('hidden')) {
+        if (meetingReportCheckbox.checked && !meetingReportResult.classList.contains('hidden')) {
             urls.push({
                 url: `/api/results/${currentJobId}/report`,
                 name: 'report.md'
@@ -829,7 +829,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fileInput.disabled = true;
             contentDescriptionCheckbox.disabled = true;
             transcriptionCheckbox.disabled = true;
-            technicalReportCheckbox.disabled = true;
+            meetingReportCheckbox.disabled = true;
             
             // Disable advanced options
             tierSelect.disabled = true;
@@ -844,7 +844,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fileInput.disabled = false;
             contentDescriptionCheckbox.disabled = false;
             transcriptionCheckbox.disabled = false;
-            technicalReportCheckbox.disabled = false;
+            meetingReportCheckbox.disabled = false;
             
             // Enable advanced options
             tierSelect.disabled = false;
@@ -865,7 +865,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fileSelected = selectedFile !== null;
         const optionSelected = contentDescriptionCheckbox.checked || 
                                transcriptionCheckbox.checked || 
-                               technicalReportCheckbox.checked;
+                               meetingReportCheckbox.checked;
         
         processBtn.disabled = !fileSelected || !optionSelected || isProcessing;
     }
@@ -884,7 +884,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fileInfo.innerHTML = '';
         contentDescriptionCheckbox.checked = true; // Default checked
         transcriptionCheckbox.checked = true; // Default checked
-        technicalReportCheckbox.checked = false;
+        meetingReportCheckbox.checked = true; // Changed to default checked
         
         // Reset advanced options
         tierSelect.value = 'business';

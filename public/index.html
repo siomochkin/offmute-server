@@ -18,7 +18,7 @@
             <div class="form-group">
                 <label for="apiKey">Google Gemini API Key (required):</label>
                 <input type="text" id="apiKey" class="form-control" placeholder="Enter your Google Gemini API key" required>
-                <p class="field-note">Your API key is required to process files and will not be stored on our servers</p>
+                <p class="field-note">Your API key is required to process files and will not be stored on our servers. <a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener noreferrer">Get a Gemini API key</a></p>
             </div>
         </section>
 
@@ -48,9 +48,9 @@
                     <span class="tooltip">Convert speech to text</span>
                 </div>
                 <div class="checkbox-item">
-                    <input type="checkbox" id="technicalReport">
-                    <label for="technicalReport">Technical Report</label>
-                    <span class="tooltip">Analyze audio quality and technical aspects</span>
+                    <input type="checkbox" id="meetingReport" checked>
+                    <label for="meetingReport">Report</label>
+                    <span class="tooltip">Generate a comprehensive meeting summary with key points and insights</span>
                 </div>
             </div>
             
@@ -121,8 +121,8 @@
                 <div class="result-content"></div>
             </div>
             
-            <div id="technicalReportResult" class="result-container hidden">
-                <h3>Technical Report</h3>
+            <div id="meetingReportResult" class="result-container hidden">
+                <h3>Report</h3>
                 <div class="result-content"></div>
             </div>
             
