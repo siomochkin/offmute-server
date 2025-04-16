@@ -572,8 +572,18 @@ app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
     // Check if the upload exists
     const uploadStatus = activeUploads.get(jobId);
     if (!uploadStatus) {
+      console.log(`Upload not found for jobId: ${jobId}`);
       return res.status(404).json({ error: 'Upload not found' });
     }
+    
+    // Log detailed upload status for debugging
+    console.log(`Upload status for ${jobId}:`, {
+      filename: uploadStatus.filename,
+      totalChunks: uploadStatus.totalChunks,
+      receivedChunks: uploadStatus.receivedChunks,
+      outputDir: uploadStatus.outputDir,
+      chunkKeys: Object.keys(uploadStatus.chunks)
+    });
     
     // Check if all chunks are received
     if (uploadStatus.receivedChunks < uploadStatus.totalChunks) {
@@ -586,26 +596,42 @@ app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
     
     // Create the final file from chunks
     const outputFile = path.join(uploadStatus.outputDir, uploadStatus.filename);
+    console.log(`Will write assembled file to: ${outputFile}`);
     
     try {
+      // Ensure the output directory exists
+      if (!fs.existsSync(uploadStatus.outputDir)) {
+        console.log(`Creating output directory: ${uploadStatus.outputDir}`);
+        fs.mkdirSync(uploadStatus.outputDir, { recursive: true });
+      }
+      
       // Create a write stream for the final file
       const writeStream = fs.createWriteStream(outputFile);
+      console.log(`Created write stream for: ${outputFile}`);
       
       // Process chunks in order
+      let missingChunks: number[] = [];
       for (let i = 0; i < uploadStatus.totalChunks; i++) {
         const chunkPath = uploadStatus.chunks[i];
         
+        console.log(`Processing chunk ${i}, path: ${chunkPath || 'undefined'}`);
+        
         if (!chunkPath || !fs.existsSync(chunkPath)) {
-          throw new Error(`Chunk ${i} not found`);
+          missingChunks.push(i);
+          console.error(`Chunk ${i} not found at path: ${chunkPath || 'undefined'}`);
+          continue;
         }
         
         // Read the chunk and append to the output file
+        console.log(`Reading chunk data from: ${chunkPath}`);
         const chunkData = fs.readFileSync(chunkPath);
+        console.log(`Read ${chunkData.length} bytes from chunk ${i}`);
         writeStream.write(chunkData);
         
         // Delete the chunk file to free up space
         try {
           fs.unlinkSync(chunkPath);
+          console.log(`Deleted chunk file: ${chunkPath}`);
         } catch (err) {
           console.error(`Error deleting chunk ${i}:`, err);
         }
@@ -613,11 +639,33 @@ app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
       
       // Close the write stream
       writeStream.end();
+      console.log(`Closed write stream for: ${outputFile}`);
       
-      console.log(`Successfully assembled ${uploadStatus.filename} from chunks`);
+      // If we have missing chunks, throw an error
+      if (missingChunks.length > 0) {
+        throw new Error(`Missing chunks: ${missingChunks.join(', ')}`);
+      }
+      
+      // Verify the file was created successfully
+      if (!fs.existsSync(outputFile)) {
+        throw new Error(`Output file was not created at: ${outputFile}`);
+      }
+      
+      const stats = fs.statSync(outputFile);
+      console.log(`Successfully assembled ${uploadStatus.filename} (${stats.size} bytes) from chunks`);
+      
     } catch (error) {
       console.error(`Error assembling file from chunks:`, error);
-      return res.status(500).json({ error: 'Failed to assemble file from chunks' });
+      return res.status(500).json({ 
+        error: `Failed to assemble file from chunks: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        details: {
+          jobId,
+          filename: uploadStatus.filename,
+          chunks: Object.keys(uploadStatus.chunks).length,
+          receivedChunks: uploadStatus.receivedChunks,
+          totalChunks: uploadStatus.totalChunks
+        }
+      });
     }
     
     // Check for streaming response
