@@ -396,6 +396,8 @@ app.post('/api/process', uploadHandler, async (req, res) => {
                 modelConfig.reportModel
               );
               console.log('Technical report complete');
+              console.log(`Report saved to ${reportResult.reportPath}`);
+              console.log(`Report content length: ${reportResult.report.length} characters`);
             }
 
             // Create final result summary
@@ -419,6 +421,10 @@ app.post('/api/process', uploadHandler, async (req, res) => {
                 report: reportResult ? `/api/results/${jobId}/report` : null,
               }
             };
+
+            // Sanity check result summary
+            console.log('Final result summary properties:', Object.keys(resultSummary));
+            console.log('Report included in result summary:', resultSummary.report ? 'Yes' : 'No');
 
             // Save result summary
             fs.writeFileSync(

@@ -429,10 +429,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
                 break;
+            case 'report_complete':
+                if (!data.progress) {
+                    updateProgress(90, 'Report complete, finalizing...');
+                }
+                // Show partial results with report
+                if (data.report) {
+                    displayPartialResults({
+                        contentDescription: data.description,
+                        transcription: data.transcription,
+                        technicalReport: data.report
+                    });
+                }
+                break;
             case 'completed':
                 if (!data.progress) {
                     updateProgress(100, 'Processing complete!');
                 }
+                console.log('Received completed event with data:', 
+                            'description:', !!data.description, 
+                            'transcription:', !!data.transcription, 
+                            'report:', !!data.report);
                 // Show all results
                 displayResults(data);
                 break;
@@ -461,6 +478,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const content = transcriptionResult.querySelector('.result-content');
             content.innerHTML = `<p>${data.transcription}</p>`;
         }
+        
+        if (data.technicalReport) {
+            console.log('Showing partial technical report');
+            technicalReportResult.classList.remove('hidden');
+            const content = technicalReportResult.querySelector('.result-content');
+            
+            // Format the report content for better display
+            let formattedReport = data.technicalReport
+                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                .replace(/^### (.*$)/gm, '<h3>$1</h3>');
+                
+            // Convert line breaks to HTML
+            formattedReport = formattedReport.split('\n\n').map(p => `<p>${p}</p>`).join('');
+            
+            content.innerHTML = formattedReport;
+        }
     }
 
     /**
@@ -485,6 +519,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * Displays results in the results section
      */
     function displayResults(result) {
+        console.log('Displaying results:', result);
         resultsSection.classList.remove('hidden');
         
         // Content Description
@@ -503,9 +538,24 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Report
         if (result.report) {
+            console.log('Report content available, length:', result.report.length);
             technicalReportResult.classList.remove('hidden');
             const content = technicalReportResult.querySelector('.result-content');
-            content.innerHTML = `<p>${result.report}</p>`;
+            
+            // Format the report content for better display
+            // Convert markdown headings to HTML
+            let formattedReport = result.report
+                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                .replace(/^### (.*$)/gm, '<h3>$1</h3>');
+                
+            // Convert line breaks to HTML
+            formattedReport = formattedReport.split('\n\n').map(p => `<p>${p}</p>`).join('');
+            
+            content.innerHTML = formattedReport;
+            console.log('Report displayed with formatting');
+        } else {
+            console.log('No report data available in result:', result);
         }
     }
 
