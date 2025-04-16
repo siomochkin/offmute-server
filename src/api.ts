@@ -563,246 +563,199 @@ app.post('/api/process', uploadHandler, async (req, res) => {
   }
 });
 
-// Process file with streaming updates
-async function processStreamingFile(req: any, res: any, outputDir: string, jobId: string, sendSSE: any) {
+// Process uploaded chunks
+app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
   try {
-    console.log('Starting media processing');
+    console.log('==== PROCESS UPLOADED CHUNKS ====');
+    const { jobId } = req.params;
+    
+    // Check if the upload exists
+    const uploadStatus = activeUploads.get(jobId);
+    if (!uploadStatus) {
+      return res.status(404).json({ error: 'Upload not found' });
+    }
+    
+    // Check if all chunks are received
+    if (uploadStatus.receivedChunks < uploadStatus.totalChunks) {
+      return res.status(400).json({ 
+        error: `Upload not complete. ${uploadStatus.receivedChunks}/${uploadStatus.totalChunks} chunks received`
+      });
+    }
+    
+    console.log(`Processing uploaded file ${jobId} with ${uploadStatus.receivedChunks} chunks`);
+    
+    // Create the final file from chunks
+    const outputFile = path.join(uploadStatus.outputDir, uploadStatus.filename);
     
     try {
-      // Process steps with stream updates
-      const mediaInfo = await getMediaInfo(req.file.path);
-      console.log(`Media info extracted: ${JSON.stringify(mediaInfo)}`);
+      // Create a write stream for the final file
+      const writeStream = fs.createWriteStream(outputFile);
       
-      // Send update
-      sendSSE({
+      // Process chunks in order
+      for (let i = 0; i < uploadStatus.totalChunks; i++) {
+        const chunkPath = uploadStatus.chunks[i];
+        
+        if (!chunkPath || !fs.existsSync(chunkPath)) {
+          throw new Error(`Chunk ${i} not found`);
+        }
+        
+        // Read the chunk and append to the output file
+        const chunkData = fs.readFileSync(chunkPath);
+        writeStream.write(chunkData);
+        
+        // Delete the chunk file to free up space
+        try {
+          fs.unlinkSync(chunkPath);
+        } catch (err) {
+          console.error(`Error deleting chunk ${i}:`, err);
+        }
+      }
+      
+      // Close the write stream
+      writeStream.end();
+      
+      console.log(`Successfully assembled ${uploadStatus.filename} from chunks`);
+    } catch (error) {
+      console.error(`Error assembling file from chunks:`, error);
+      return res.status(500).json({ error: 'Failed to assemble file from chunks' });
+    }
+    
+    // Check for streaming response
+    const streamResponse = req.body.streamResponse === 'true' || 
+                        req.body.streamResponse === true || 
+                        req.body.streamResponse === '1' || 
+                        req.body.streamResponse === 1;
+    
+    // Mark the upload as completed
+    uploadStatus.completed = true;
+    
+    // Initial response for both streaming and non-streaming
+    if (streamResponse) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no'); // Prevent Nginx buffering
+
+      // Send initial event
+      res.write(`data: ${JSON.stringify({
         jobId,
         status: 'processing',
-        progress: 10,
-        message: 'Analyzing media file...'
-      });
-      
-      // Generate screenshots if it's a video
-      let screenshotPaths: string[] = [];
-      if (mediaInfo.isVideo) {
-        console.log('Generating screenshots');
-        screenshotPaths = await generateScreenshots(req.file.path, outputDir, req.body.screenshotCount);
-        console.log(`Generated ${screenshotPaths.length} screenshots`);
+        progress: 0,
+        message: 'Starting processing...'
+      })}\n\n`);
+    } else {
+      // For non-streaming, just return the job ID
+      res.json({ jobId });
+      console.log('Sent non-streaming response with job ID');
+    }
+    
+    // Create a mock request for processing
+    const mockReq: any = {
+      file: {
+        path: outputFile,
+        originalname: uploadStatus.filename,
+        size: uploadStatus.fileSize,
+        mimetype: uploadStatus.fileType
+      },
+      body: {
+        apiKey: uploadStatus.processing.apiKey,
+        tier: uploadStatus.processing.tier,
+        screenshotCount: uploadStatus.processing.screenshotCount,
+        audioChunkMinutes: uploadStatus.processing.audioChunkMinutes,
+        generateReport: uploadStatus.processing.generateReport,
+        instructions: uploadStatus.processing.instructions,
+        streamResponse
+      }
+    };
+    
+    // Start processing in background
+    if (streamResponse) {
+      console.log('Beginning background processing with streaming updates');
+      const sendSSE = (data: any) => {
+        const jsonStr = JSON.stringify(data);
         
-        // Send update
-        sendSSE({
-          jobId,
-          status: 'processing',
-          progress: 20,
-          message: 'Screenshots generated...'
-        });
-      }
-      
-      // Generate content description
-      const apiKey = req.body.apiKey || process.env.GEMINI_API_KEY;
-      const modelConfig = getTierConfig(req.body.tier || 'business');
-      
-      console.log('Generating content description');
-      const description = await generateContentDescription(
-        req.file.path, 
-        outputDir, 
-        mediaInfo, 
-        screenshotPaths,
-        apiKey,
-        modelConfig.screenshotModel,
-        modelConfig.audioModel,
-        modelConfig.mergeModel,
-        req.body.instructions,
-        req.body.audioChunkMinutes
-      );
-      console.log('Content description complete');
-      
-      // Write description to file
-      const descriptionPath = path.join(outputDir, `${path.basename(req.file.path, path.extname(req.file.path))}_description.md`);
-      fs.writeFileSync(descriptionPath, description);
-      console.log(`Description saved to ${descriptionPath}`);
-      
-      // Send update
-      sendSSE({
-        jobId,
-        status: 'description_complete',
-        progress: 40,
-        message: 'Description complete, generating transcription...',
-        description
-      });
-      
-      // Generate transcription if needed
-      console.log('Starting transcription generation');
-      
-      // First generate description result for transcription input
-      const descriptionResult = await generateDescription(req.file.path, {
-        screenshotModel: modelConfig.screenshotModel,
-        audioModel: modelConfig.audioModel,
-        mergeModel: modelConfig.mergeModel,
-        screenshotCount: screenshotPaths.length,
-        transcriptionChunkMinutes: req.body.audioChunkMinutes,
-        outputPath: outputDir,
-        showProgress: true,
-        userInstructions: req.body.instructions,
-        apiKey
-      });
-      
-      // Then generate transcription
-      const transcriptionResult = await generateTranscription(
-        req.file.path, 
-        descriptionResult,
-        {
-          transcriptionModel: modelConfig.transcriptionModel,
-          outputPath: outputDir,
-          showProgress: true,
-          userInstructions: req.body.instructions,
-          apiKey
-        }
-      );
-      
-      // Read the transcription content
-      const transcriptionContent = fs.readFileSync(transcriptionResult.transcriptionPath, 'utf-8');
-      console.log('Transcription complete');
-      
-      // Send update
-      sendSSE({
-        jobId,
-        status: 'transcription_complete',
-        progress: 80,
-        message: 'Transcription complete...',
-        description,
-        transcription: transcriptionContent
-      });
-
-      // Generate technical report if requested
-      let reportResult: { report: string; reportPath: string } | null = null;
-      if (req.body.generateReport === 'true' || req.body.generateReport === true) {
-        console.log('Generating technical report');
-        reportResult = await generateTechnicalReport(
-          req.file.path,
-          outputDir,
-          mediaInfo,
-          description,
-          transcriptionContent,
-          apiKey,
-          modelConfig.reportModel
-        );
-        console.log('Technical report complete');
-        console.log(`Report saved to ${reportResult.reportPath}`);
-        console.log(`Report content length: ${reportResult.report.length} characters`);
-      }
-
-      // Create final result summary
-      const resultSummary = {
-        jobId,
-        status: 'completed',
-        progress: 100,
-        message: 'Processing complete!',
-        inputFile: req.file ? req.file.originalname : path.basename(req.file.path),
-        description,
-        transcription: transcriptionContent,
-        report: reportResult ? reportResult.report : null,
-        outputs: {
-          descriptionFile: path.relative(path.join(__dirname, '..'), descriptionPath),
-          transcriptionFile: path.relative(path.join(__dirname, '..'), transcriptionResult.transcriptionPath),
-          reportFile: reportResult ? path.relative(path.join(__dirname, '..'), reportResult.reportPath) : null,
-        },
-        downloadLinks: {
-          description: `/api/results/${jobId}/description`,
-          transcription: `/api/results/${jobId}/transcription`,
-          report: reportResult ? `/api/results/${jobId}/report` : null,
+        // For large data objects, we need special handling to avoid chunking issues
+        if (jsonStr.length > 10000) {
+          console.log(`Large SSE message detected (${jsonStr.length} bytes), truncating content for streaming`);
+          
+          // Clone the data to avoid modifying the original
+          const streamData = { ...data };
+          
+          // Truncate large text fields for the streaming update
+          if (streamData.description && streamData.description.length > 1000) {
+            streamData.description = streamData.description.substring(0, 1000) + '... [content truncated for streaming]';
+          }
+          
+          if (streamData.transcription && streamData.transcription.length > 1000) {
+            streamData.transcription = streamData.transcription.substring(0, 1000) + '... [content truncated for streaming]';
+          }
+          
+          if (streamData.report && streamData.report.length > 1000) {
+            streamData.report = streamData.report.substring(0, 1000) + '... [content truncated for streaming]';
+          }
+          
+          // Send the status update with truncated content
+          const truncatedMessage = `data: ${JSON.stringify(streamData)}\n\n`;
+          console.log(`Sending truncated SSE update: ${truncatedMessage.substring(0, 100)}...`);
+          res.write(truncatedMessage);
+          
+          // For the final 'completed' status, we'll handle it differently
+          if (data.status === 'completed') {
+            // Send individual updates for each large piece of content
+            if (data.description && data.description.length > 1000) {
+              const descMsg = `data: {"jobId":"${data.jobId}","status":"description_content","description":${JSON.stringify(data.description)}}\n\n`;
+              console.log('Sending full description separately');
+              res.write(descMsg);
+            }
+            
+            if (data.transcription && data.transcription.length > 1000) {
+              const transMsg = `data: {"jobId":"${data.jobId}","status":"transcription_content","transcription":${JSON.stringify(data.transcription)}}\n\n`;
+              console.log('Sending full transcription separately');
+              res.write(transMsg);
+            }
+            
+            if (data.report && data.report.length > 1000) {
+              const reportMsg = `data: {"jobId":"${data.jobId}","status":"report_content","report":${JSON.stringify(data.report)}}\n\n`;
+              console.log('Sending full report separately');
+              res.write(reportMsg);
+            }
+            
+            // Finally send a completion message with all metadata but without the large content
+            const completionData = {
+              jobId: data.jobId,
+              status: 'fully_completed',
+              progress: 100,
+              message: 'Processing complete!',
+              inputFile: data.inputFile,
+              outputs: data.outputs,
+              downloadLinks: data.downloadLinks
+            };
+            
+            const completionMsg = `data: ${JSON.stringify(completionData)}\n\n`;
+            console.log('Sending final completion message');
+            res.write(completionMsg);
+          }
+        } else {
+          // For smaller messages, send as normal
+          const message = `data: ${jsonStr}\n\n`;
+          console.log(`Sending SSE update: ${message.substring(0, 100)}...`);
+          res.write(message);
         }
       };
-
-      // Sanity check result summary
-      console.log('Final result summary properties:', Object.keys(resultSummary));
-      console.log('Report included in result summary:', resultSummary.report ? 'Yes' : 'No');
-
-      // Save result summary
-      fs.writeFileSync(
-        path.join(outputDir, 'result.json'),
-        JSON.stringify(resultSummary, null, 2)
-      );
-      console.log('Results saved to disk');
-
-      // Send final update
-      sendSSE(resultSummary);
-      console.log('Final update sent, closing stream');
       
-      // Close the connection
-      res.end();
-    } catch (processingError) {
-      console.error('Error during media processing:', processingError);
-      // Send error update
-      sendSSE({
-        jobId,
-        status: 'failed',
-        error: processingError instanceof Error ? processingError.message : String(processingError)
-      });
-      
-      // Close the connection
-      res.end();
-      
-      // Save error info
-      fs.writeFileSync(
-        path.join(outputDir, 'error.json'),
-        JSON.stringify({
-          jobId,
-          status: 'failed',
-          error: processingError instanceof Error ? processingError.message : String(processingError),
-          timestamp: new Date().toISOString()
-        }, null, 2)
-      );
+      // Process the file with streaming updates
+      processStreamingFile(mockReq, res, uploadStatus.outputDir, jobId, sendSSE);
+    } else {
+      console.log('Beginning background processing for polling mode');
+      // Process the file for polling mode
+      processPollingFile(mockReq, uploadStatus.outputDir, jobId);
     }
   } catch (error) {
-    console.error('Fatal error in background processing:', error);
-    // Save error info
+    console.error('Error processing chunked upload:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    fs.writeFileSync(
-      path.join(outputDir, 'error.json'),
-      JSON.stringify({
-        jobId,
-        status: 'failed',
-        error: errorMessage,
-        timestamp: new Date().toISOString()
-      }, null, 2)
-    );
+    res.status(500).json({ error: errorMessage });
   }
-}
-
-// Process file with polling updates
-async function processPollingFile(req: any, outputDir: string, jobId: string) {
-  try {
-    // Process the file using existing logic for non-streaming requests
-    // This would be similar to the existing non-streaming code path in the /api/process endpoint
-    
-    console.log(`Processing file for polling: ${jobId}`);
-    
-    // Save a result summary file with processing status
-    fs.writeFileSync(
-      path.join(outputDir, 'result.json'),
-      JSON.stringify({
-        jobId,
-        status: 'processing',
-        message: 'Processing started',
-        timestamp: new Date().toISOString()
-      }, null, 2)
-    );
-    
-    // Further processing would continue here...
-    // This would be the same as your existing non-streaming code
-  } catch (error) {
-    console.error('Error in polling file processing:', error);
-    fs.writeFileSync(
-      path.join(outputDir, 'error.json'),
-      JSON.stringify({
-        jobId,
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString()
-      }, null, 2)
-    );
-  }
-}
+});
 
 // Check job status
 app.get('/api/jobs/:jobId', (req, res) => {
@@ -1292,4 +1245,245 @@ async function generateTechnicalReport(
     report: reportContent,
     reportPath: reportResult.reportPath
   };
+}
+
+// Process file with streaming updates
+async function processStreamingFile(req: any, res: any, outputDir: string, jobId: string, sendSSE: any) {
+  try {
+    console.log('Starting media processing');
+    
+    try {
+      // Process steps with stream updates
+      const mediaInfo = await getMediaInfo(req.file.path);
+      console.log(`Media info extracted: ${JSON.stringify(mediaInfo)}`);
+      
+      // Send update
+      sendSSE({
+        jobId,
+        status: 'processing',
+        progress: 10,
+        message: 'Analyzing media file...'
+      });
+      
+      // Generate screenshots if it's a video
+      let screenshotPaths: string[] = [];
+      if (mediaInfo.isVideo) {
+        console.log('Generating screenshots');
+        screenshotPaths = await generateScreenshots(req.file.path, outputDir, req.body.screenshotCount);
+        console.log(`Generated ${screenshotPaths.length} screenshots`);
+        
+        // Send update
+        sendSSE({
+            jobId,
+          status: 'processing',
+          progress: 20,
+          message: 'Screenshots generated...'
+        });
+      }
+      
+      // Generate content description
+      const apiKey = req.body.apiKey || process.env.GEMINI_API_KEY;
+      const modelConfig = getTierConfig(req.body.tier || 'business');
+      
+      console.log('Generating content description');
+      const description = await generateContentDescription(
+        req.file.path, 
+        outputDir, 
+        mediaInfo, 
+        screenshotPaths,
+        apiKey,
+        modelConfig.screenshotModel,
+        modelConfig.audioModel,
+        modelConfig.mergeModel,
+        req.body.instructions,
+        req.body.audioChunkMinutes
+      );
+      console.log('Content description complete');
+      
+      // Write description to file
+      const descriptionPath = path.join(outputDir, `${path.basename(req.file.path, path.extname(req.file.path))}_description.md`);
+      fs.writeFileSync(descriptionPath, description);
+      console.log(`Description saved to ${descriptionPath}`);
+      
+      // Send update
+      sendSSE({
+            jobId,
+        status: 'description_complete',
+        progress: 40,
+        message: 'Description complete, generating transcription...',
+        description
+      });
+      
+      // Generate transcription if needed
+      console.log('Starting transcription generation');
+      
+      // First generate description result for transcription input
+      const descriptionResult = await generateDescription(req.file.path, {
+        screenshotModel: modelConfig.screenshotModel,
+        audioModel: modelConfig.audioModel,
+        mergeModel: modelConfig.mergeModel,
+        screenshotCount: screenshotPaths.length,
+        transcriptionChunkMinutes: req.body.audioChunkMinutes,
+        outputPath: outputDir,
+        showProgress: true,
+        userInstructions: req.body.instructions,
+        apiKey
+      });
+      
+      // Then generate transcription
+      const transcriptionResult = await generateTranscription(
+        req.file.path, 
+        descriptionResult,
+        {
+          transcriptionModel: modelConfig.transcriptionModel,
+                  outputPath: outputDir,
+                  showProgress: true,
+          userInstructions: req.body.instructions,
+          apiKey
+        }
+      );
+      
+      // Read the transcription content
+      const transcriptionContent = fs.readFileSync(transcriptionResult.transcriptionPath, 'utf-8');
+      console.log('Transcription complete');
+      
+      // Send update
+      sendSSE({
+        jobId,
+        status: 'transcription_complete',
+        progress: 80,
+        message: 'Transcription complete...',
+        description,
+        transcription: transcriptionContent
+      });
+
+      // Generate technical report if requested
+      let reportResult: { report: string; reportPath: string } | null = null;
+      if (req.body.generateReport === 'true' || req.body.generateReport === true) {
+        console.log('Generating technical report');
+        reportResult = await generateTechnicalReport(
+          req.file.path,
+          outputDir,
+          mediaInfo,
+          description,
+          transcriptionContent,
+          apiKey,
+          modelConfig.reportModel
+        );
+        console.log('Technical report complete');
+        console.log(`Report saved to ${reportResult.reportPath}`);
+        console.log(`Report content length: ${reportResult.report.length} characters`);
+          }
+
+          // Create final result summary
+          const resultSummary = {
+            jobId,
+            status: 'completed',
+        progress: 100,
+        message: 'Processing complete!',
+        inputFile: req.file ? req.file.originalname : path.basename(req.file.path),
+        description,
+        transcription: transcriptionContent,
+        report: reportResult ? reportResult.report : null,
+            outputs: {
+          descriptionFile: path.relative(path.join(__dirname, '..'), descriptionPath),
+          transcriptionFile: path.relative(path.join(__dirname, '..'), transcriptionResult.transcriptionPath),
+          reportFile: reportResult ? path.relative(path.join(__dirname, '..'), reportResult.reportPath) : null,
+            },
+            downloadLinks: {
+              description: `/api/results/${jobId}/description`,
+              transcription: `/api/results/${jobId}/transcription`,
+          report: reportResult ? `/api/results/${jobId}/report` : null,
+            }
+          };
+
+      // Sanity check result summary
+      console.log('Final result summary properties:', Object.keys(resultSummary));
+      console.log('Report included in result summary:', resultSummary.report ? 'Yes' : 'No');
+
+          // Save result summary
+          fs.writeFileSync(
+            path.join(outputDir, 'result.json'),
+            JSON.stringify(resultSummary, null, 2)
+          );
+      console.log('Results saved to disk');
+
+      // Send final update
+      sendSSE(resultSummary);
+      console.log('Final update sent, closing stream');
+      
+      // Close the connection
+      res.end();
+    } catch (processingError) {
+      console.error('Error during media processing:', processingError);
+      // Send error update
+      sendSSE({
+        jobId,
+        status: 'failed',
+        error: processingError instanceof Error ? processingError.message : String(processingError)
+      });
+      
+      // Close the connection
+      res.end();
+      
+      // Save error info
+      fs.writeFileSync(
+        path.join(outputDir, 'error.json'),
+        JSON.stringify({
+          jobId,
+          status: 'failed',
+          error: processingError instanceof Error ? processingError.message : String(processingError),
+          timestamp: new Date().toISOString()
+        }, null, 2)
+      );
+    }
+        } catch (error) {
+    console.error('Fatal error in background processing:', error);
+          // Save error info
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          fs.writeFileSync(
+            path.join(outputDir, 'error.json'),
+            JSON.stringify({
+              jobId,
+              status: 'failed',
+              error: errorMessage,
+              timestamp: new Date().toISOString()
+            }, null, 2)
+          );
+        }
+}
+
+// Process file with polling updates
+async function processPollingFile(req: any, outputDir: string, jobId: string) {
+  try {
+    // Process the file using existing logic for non-streaming requests
+    // This would be similar to the existing non-streaming code path in the /api/process endpoint
+    
+    console.log(`Processing file for polling: ${jobId}`);
+    
+    // Save a result summary file with processing status
+    fs.writeFileSync(
+      path.join(outputDir, 'result.json'),
+      JSON.stringify({
+        jobId,
+        status: 'processing',
+        message: 'Processing started',
+        timestamp: new Date().toISOString()
+      }, null, 2)
+    );
+    
+    // Further processing would continue here...
+    // This would be the same as your existing non-streaming code
+  } catch (error) {
+    console.error('Error in polling file processing:', error);
+    fs.writeFileSync(
+      path.join(outputDir, 'error.json'),
+      JSON.stringify({
+        jobId,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString()
+      }, null, 2)
+    );
+  }
 }
