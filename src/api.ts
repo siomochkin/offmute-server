@@ -29,9 +29,40 @@ const rateLimiter = (() => {
       return next();
     }
     
+    // Allow chunk uploads to bypass the main rate limiter
+    if (req.path.startsWith('/api/upload-chunk/')) {
+      // Special rate limit for chunk uploads: 500 requests per minute
+      const chunkLimitKey = `chunk:${ip}`;
+      const now = Date.now();
+      const windowMs = 60 * 1000; // 1 minute window
+      const maxChunkRequestsPerWindow = 500; // Higher limit for chunk uploads
+      
+      // Initialize or get current count for chunk uploads
+      if (!requestCounts.has(chunkLimitKey) || requestCounts.get(chunkLimitKey)!.resetTime < now) {
+        requestCounts.set(chunkLimitKey, { count: 1, resetTime: now + windowMs });
+        return next();
+      }
+      
+      const chunkRequestData = requestCounts.get(chunkLimitKey)!;
+      
+      // Increment count
+      chunkRequestData.count++;
+      
+      // Check if limit exceeded
+      if (chunkRequestData.count > maxChunkRequestsPerWindow) {
+        return res.status(429).json({ 
+          error: 'Too many chunk uploads, please try again later',
+          code: 'CHUNK_RATE_LIMIT_EXCEEDED'
+        });
+      }
+      
+      return next();
+    }
+    
+    // Standard rate limiting for other API endpoints
     const now = Date.now();
     const windowMs = 60 * 1000; // 1 minute window
-    const maxRequestsPerWindow = 10; // Maximum requests per window
+    const maxRequestsPerWindow = 60; // Maximum requests per window (increased from 10)
     
     // Initialize or get current count
     if (!requestCounts.has(ip) || requestCounts.get(ip)!.resetTime < now) {
