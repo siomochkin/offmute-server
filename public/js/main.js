@@ -243,8 +243,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // For streaming response, set up event source
                 const reader = response.body.getReader();
                 let receivedLength = 0;
-                let chunks = [];
                 let lastProgressUpdate = Date.now();
+                let buffer = ''; // Buffer for incomplete messages
                 
                 while(true) {
                     const {done, value} = await reader.read();
@@ -254,29 +254,47 @@ document.addEventListener('DOMContentLoaded', () => {
                         break;
                     }
                     
-                    chunks.push(value);
                     receivedLength += value.length;
                     
                     // Parse the chunks as they come in
                     const text = new TextDecoder().decode(value);
                     console.log('Received chunk:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
                     
-                    // Server-sent events format parsing
-                    const events = text.split('\n\n');
-                    console.log(`Found ${events.length} events in chunk`);
+                    // Append to buffer
+                    buffer += text;
                     
-                    for (const event of events) {
-                        if (event.startsWith('data: ')) {
+                    // Process complete events from buffer
+                    const processBuffer = () => {
+                        // Look for complete SSE messages (data: {...}\n\n)
+                        const regex = /data: ({.*?})\n\n/gs;
+                        let match;
+                        let newBuffer = buffer;
+                        let processedAny = false;
+                        
+                        while ((match = regex.exec(buffer)) !== null) {
+                            processedAny = true;
                             try {
-                                const jsonData = event.substring(6);
-                                console.log('Processing event data:', jsonData.substring(0, 100) + (jsonData.length > 100 ? '...' : ''));
+                                const jsonData = match[1];
+                                console.log('Processing complete event data:', jsonData.substring(0, 100) + (jsonData.length > 100 ? '...' : ''));
                                 const data = JSON.parse(jsonData);
                                 handleStreamUpdate(data);
+                                
+                                // Remove processed part from buffer
+                                newBuffer = newBuffer.substring(match.index + match[0].length);
                             } catch (e) {
-                                console.warn('Error parsing SSE data:', e, 'Raw data:', event.substring(0, 100));
+                                console.warn('Error parsing SSE data:', e, 'Raw data:', match[1].substring(0, 100));
                             }
                         }
-                    }
+                        
+                        if (processedAny) {
+                            buffer = newBuffer;
+                            return true;
+                        }
+                        return false;
+                    };
+                    
+                    // Try to process any complete events
+                    processBuffer();
                     
                     // Update progress every second at most
                     const now = Date.now();
@@ -285,6 +303,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         updateProgress(Math.min(receivedLength / 1000, 95), 'Processing...');
                         lastProgressUpdate = now;
                     }
+                }
+                
+                // Process any remaining complete events in buffer
+                if (buffer.length > 0) {
+                    console.log('Processing remaining buffer data:', buffer.length, 'bytes');
+                    const processBuffer = () => {
+                        // Look for complete SSE messages
+                        const regex = /data: ({.*?})\n\n/gs;
+                        let match;
+                        
+                        while ((match = regex.exec(buffer)) !== null) {
+                            try {
+                                const jsonData = match[1];
+                                console.log('Processing final buffered event:', jsonData.substring(0, 100) + (jsonData.length > 100 ? '...' : ''));
+                                const data = JSON.parse(jsonData);
+                                handleStreamUpdate(data);
+                            } catch (e) {
+                                console.warn('Error parsing final SSE data:', e);
+                            }
+                        }
+                    };
+                    
+                    processBuffer();
                 }
                 
                 // Final progress update
@@ -389,11 +430,62 @@ document.addEventListener('DOMContentLoaded', () => {
      * Handle stream updates from server-sent events
      */
     function handleStreamUpdate(data) {
-        console.log('Stream update received:', data);
+        console.log('Stream update received:', data.status);
         
         // Save the job ID for later use
         if (data.jobId) {
             currentJobId = data.jobId;
+        }
+        
+        // Store received content globally for piecing together results
+        if (!window.receivedContent) {
+            window.receivedContent = {
+                description: null,
+                transcription: null,
+                report: null
+            };
+        }
+        
+        // Handle individual content pieces
+        if (data.status === 'description_content' && data.description) {
+            console.log('Received full description content');
+            window.receivedContent.description = data.description;
+        }
+        
+        if (data.status === 'transcription_content' && data.transcription) {
+            console.log('Received full transcription content');
+            window.receivedContent.transcription = data.transcription;
+        }
+        
+        if (data.status === 'report_content' && data.report) {
+            console.log('Received full report content');
+            window.receivedContent.report = data.report;
+        }
+        
+        // When fully completed, use the stored content
+        if (data.status === 'fully_completed') {
+            console.log('Received final completion message');
+            
+            // Create a composite result from all received content
+            const completeResult = {
+                ...data,
+                description: window.receivedContent.description || data.description,
+                transcription: window.receivedContent.transcription || data.transcription,
+                report: window.receivedContent.report || data.report
+            };
+            
+            // Show the complete result
+            displayResults(completeResult);
+            
+            // Reset stored content
+            window.receivedContent = {
+                description: null,
+                transcription: null,
+                report: null
+            };
+            
+            // Stop processing
+            return;
         }
         
         // Update progress based on progress value if provided
@@ -415,6 +507,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // If we have description data, show it right away
                 if (data.description) {
                     displayPartialResults({ contentDescription: data.description });
+                    // Store for later use
+                    window.receivedContent.description = data.description;
                 }
                 break;
             case 'transcription_complete':
@@ -424,9 +518,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Update with transcription data
                 if (data.transcription) {
                     displayPartialResults({ 
-                        contentDescription: data.description,
+                        contentDescription: window.receivedContent.description || data.description,
                         transcription: data.transcription 
                     });
+                    // Store for later use
+                    window.receivedContent.transcription = data.transcription;
                 }
                 break;
             case 'report_complete':
@@ -436,10 +532,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Show partial results with report
                 if (data.report) {
                     displayPartialResults({
-                        contentDescription: data.description,
-                        transcription: data.transcription,
+                        contentDescription: window.receivedContent.description || data.description,
+                        transcription: window.receivedContent.transcription || data.transcription,
                         technicalReport: data.report
                     });
+                    // Store for later use
+                    window.receivedContent.report = data.report;
                 }
                 break;
             case 'completed':
@@ -450,6 +548,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             'description:', !!data.description, 
                             'transcription:', !!data.transcription, 
                             'report:', !!data.report);
+                            
+                // Store any content we received
+                if (data.description) window.receivedContent.description = data.description;
+                if (data.transcription) window.receivedContent.transcription = data.transcription;
+                if (data.report) window.receivedContent.report = data.report;
+                
                 // Show all results
                 displayResults(data);
                 break;

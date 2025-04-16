@@ -245,9 +245,77 @@ app.post('/api/process', uploadHandler, async (req, res) => {
 
     // Function to properly format SSE message
     const sendSSE = (data: any) => {
-      const message = `data: ${JSON.stringify(data)}\n\n`;
-      console.log(`Sending SSE update: ${message.substring(0, 100)}...`);
-      res.write(message);
+      // For large data objects, we need special handling to avoid chunking issues
+      const jsonStr = JSON.stringify(data);
+      
+      // For long descriptions, transcriptions or reports, truncate them for the SSE update
+      // The final data will still have full content
+      if (jsonStr.length > 10000) {
+        console.log(`Large SSE message detected (${jsonStr.length} bytes), truncating content for streaming`);
+        
+        // Clone the data to avoid modifying the original
+        const streamData = { ...data };
+        
+        // Truncate large text fields for the streaming update
+        if (streamData.description && streamData.description.length > 1000) {
+          streamData.description = streamData.description.substring(0, 1000) + '... [content truncated for streaming]';
+        }
+        
+        if (streamData.transcription && streamData.transcription.length > 1000) {
+          streamData.transcription = streamData.transcription.substring(0, 1000) + '... [content truncated for streaming]';
+        }
+        
+        if (streamData.report && streamData.report.length > 1000) {
+          streamData.report = streamData.report.substring(0, 1000) + '... [content truncated for streaming]';
+        }
+        
+        // Send the status update with truncated content
+        const truncatedMessage = `data: ${JSON.stringify(streamData)}\n\n`;
+        console.log(`Sending truncated SSE update: ${truncatedMessage.substring(0, 100)}...`);
+        res.write(truncatedMessage);
+        
+        // For the final 'completed' status, we'll handle it differently
+        if (data.status === 'completed') {
+          // Send individual updates for each large piece of content
+          if (data.description && data.description.length > 1000) {
+            const descMsg = `data: {"jobId":"${data.jobId}","status":"description_content","description":${JSON.stringify(data.description)}}\n\n`;
+            console.log('Sending full description separately');
+            res.write(descMsg);
+          }
+          
+          if (data.transcription && data.transcription.length > 1000) {
+            const transMsg = `data: {"jobId":"${data.jobId}","status":"transcription_content","transcription":${JSON.stringify(data.transcription)}}\n\n`;
+            console.log('Sending full transcription separately');
+            res.write(transMsg);
+          }
+          
+          if (data.report && data.report.length > 1000) {
+            const reportMsg = `data: {"jobId":"${data.jobId}","status":"report_content","report":${JSON.stringify(data.report)}}\n\n`;
+            console.log('Sending full report separately');
+            res.write(reportMsg);
+          }
+          
+          // Finally send a completion message with all metadata but without the large content
+          const completionData = {
+            jobId: data.jobId,
+            status: 'fully_completed',
+            progress: 100,
+            message: 'Processing complete!',
+            inputFile: data.inputFile,
+            outputs: data.outputs,
+            downloadLinks: data.downloadLinks
+          };
+          
+          const completionMsg = `data: ${JSON.stringify(completionData)}\n\n`;
+          console.log('Sending final completion message');
+          res.write(completionMsg);
+        }
+      } else {
+        // For smaller messages, send as normal
+        const message = `data: ${jsonStr}\n\n`;
+        console.log(`Sending SSE update: ${message.substring(0, 100)}...`);
+        res.write(message);
+      }
     };
 
     // Initial response for both streaming and non-streaming
