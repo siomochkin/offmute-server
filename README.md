@@ -285,6 +285,30 @@ server {
 }
 ```
 
+## Streaming Configuration for Traefik
+
+If you're using Traefik as a reverse proxy, you need to add the following middleware configuration to support streaming responses properly:
+
+```yaml
+# In your Traefik configuration file
+http:
+  middlewares:
+    streaming-headers:
+      headers:
+        customResponseHeaders:
+          Cache-Control: "no-cache"
+          X-Accel-Buffering: "no"
+          Content-Type: "text/event-stream"
+
+  routers:
+    summariser:  # or whatever your router name is
+      middlewares:
+        - streaming-headers
+        - largeUpload  # keep existing middlewares
+```
+
+This configuration ensures that server-sent events (streaming responses) are properly handled by the Traefik proxy.
+
 ## API Usage Guide
 
 ### 1. Upload and Process a Meeting Recording

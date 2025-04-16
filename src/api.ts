@@ -243,19 +243,27 @@ app.post('/api/process', uploadHandler, async (req, res) => {
       return res.status(500).json({ error: 'Failed to create job directory' });
     }
 
+    // Function to properly format SSE message
+    const sendSSE = (data: any) => {
+      const message = `data: ${JSON.stringify(data)}\n\n`;
+      console.log(`Sending SSE update: ${message.substring(0, 100)}...`);
+      res.write(message);
+    };
+
     // Initial response for both streaming and non-streaming
     if (streamResponse) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no'); // Prevent Nginx buffering
       
       // Send initial event
-      res.write(`data: ${JSON.stringify({
+      sendSSE({
         jobId,
         status: 'processing',
         progress: 0,
         message: 'Starting processing...'
-      })}\n\n`);
+      });
       
       console.log('Started streaming response');
     } else {
@@ -278,12 +286,12 @@ app.post('/api/process', uploadHandler, async (req, res) => {
             console.log(`Media info extracted: ${JSON.stringify(mediaInfo)}`);
             
             // Send update
-            res.write(`data: ${JSON.stringify({
+            sendSSE({
               jobId,
               status: 'processing',
               progress: 10,
               message: 'Analyzing media file...'
-            })}\n\n`);
+            });
             
             // Generate screenshots if it's a video
             let screenshotPaths: string[] = [];
@@ -293,12 +301,12 @@ app.post('/api/process', uploadHandler, async (req, res) => {
               console.log(`Generated ${screenshotPaths.length} screenshots`);
               
               // Send update
-              res.write(`data: ${JSON.stringify({
+              sendSSE({
                 jobId,
                 status: 'processing',
                 progress: 20,
                 message: 'Screenshots generated...'
-              })}\n\n`);
+              });
             }
             
             // Generate content description based on audio and/or screenshots
@@ -323,13 +331,13 @@ app.post('/api/process', uploadHandler, async (req, res) => {
             console.log(`Description saved to ${descriptionPath}`);
             
             // Send update
-            res.write(`data: ${JSON.stringify({
+            sendSSE({
               jobId,
               status: 'description_complete',
               progress: 40,
               message: 'Description complete, generating transcription...',
               description
-            })}\n\n`);
+            });
 
             // Generate transcription if needed
             console.log('Starting transcription generation');
@@ -365,14 +373,14 @@ app.post('/api/process', uploadHandler, async (req, res) => {
             console.log('Transcription complete');
             
             // Send update
-            res.write(`data: ${JSON.stringify({
+            sendSSE({
               jobId,
               status: 'transcription_complete',
               progress: 80,
               message: 'Transcription complete...',
               description,
               transcription: transcriptionContent
-            })}\n\n`);
+            });
 
             // Generate technical report if requested
             let reportResult: { report: string; reportPath: string } | null = null;
@@ -420,7 +428,7 @@ app.post('/api/process', uploadHandler, async (req, res) => {
             console.log('Results saved to disk');
 
             // Send final update
-            res.write(`data: ${JSON.stringify(resultSummary)}\n\n`);
+            sendSSE(resultSummary);
             console.log('Final update sent, closing stream');
             
             // Close the connection
@@ -428,11 +436,11 @@ app.post('/api/process', uploadHandler, async (req, res) => {
           } catch (processingError) {
             console.error('Error during media processing:', processingError);
             // Send error update
-            res.write(`data: ${JSON.stringify({
+            sendSSE({
               jobId,
               status: 'failed',
               error: processingError instanceof Error ? processingError.message : String(processingError)
-            })}\n\n`);
+            });
             
             // Close the connection
             res.end();

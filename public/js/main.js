@@ -239,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Check if streaming response is enabled
             if (streamResponse.checked) {
+                console.log('Using streaming response mode');
                 // For streaming response, set up event source
                 const reader = response.body.getReader();
                 let receivedLength = 0;
@@ -249,6 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const {done, value} = await reader.read();
                     
                     if (done) {
+                        console.log('Stream reading complete');
                         break;
                     }
                     
@@ -257,16 +259,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     // Parse the chunks as they come in
                     const text = new TextDecoder().decode(value);
+                    console.log('Received chunk:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
                     
                     // Server-sent events format parsing
                     const events = text.split('\n\n');
+                    console.log(`Found ${events.length} events in chunk`);
+                    
                     for (const event of events) {
                         if (event.startsWith('data: ')) {
                             try {
-                                const data = JSON.parse(event.substring(6));
+                                const jsonData = event.substring(6);
+                                console.log('Processing event data:', jsonData.substring(0, 100) + (jsonData.length > 100 ? '...' : ''));
+                                const data = JSON.parse(jsonData);
                                 handleStreamUpdate(data);
                             } catch (e) {
-                                console.warn('Error parsing SSE data:', e);
+                                console.warn('Error parsing SSE data:', e, 'Raw data:', event.substring(0, 100));
                             }
                         }
                     }
@@ -382,6 +389,8 @@ document.addEventListener('DOMContentLoaded', () => {
      * Handle stream updates from server-sent events
      */
     function handleStreamUpdate(data) {
+        console.log('Stream update received:', data);
+        
         // Save the job ID for later use
         if (data.jobId) {
             currentJobId = data.jobId;
