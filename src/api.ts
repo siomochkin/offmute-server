@@ -321,14 +321,21 @@ app.post('/api/upload-chunk/:jobId', (req, res) => {
       return res.status(404).json({ error: 'Upload not found' });
     }
     
-    // Use multer for handling multipart form data
+    // Create custom storage for chunks with proper indexing
     const chunkStorage = multer.diskStorage({
       destination: (req, file, cb) => {
-        cb(null, path.join(uploadStatus.outputDir, 'chunks'));
+        const chunksDir = path.join(uploadStatus.outputDir, 'chunks');
+        // Ensure chunks directory exists
+        if (!fs.existsSync(chunksDir)) {
+          fs.mkdirSync(chunksDir, { recursive: true });
+        }
+        cb(null, chunksDir);
       },
       filename: (req, file, cb) => {
+        // Get chunk index from request and use it in filename
         const chunkIndex = req.body.chunkIndex || '0';
-        cb(null, `chunk-${chunkIndex}`);
+        // Create a unique filename that includes the index
+        cb(null, `chunk-${chunkIndex}-${Date.now()}`);
       }
     });
     
@@ -350,12 +357,15 @@ app.post('/api/upload-chunk/:jobId', (req, res) => {
       const chunkIndex = parseInt(req.body.chunkIndex || '0');
       const totalChunks = parseInt(req.body.totalChunks || '1');
       
-      // Update upload status
+      console.log(`Processing chunk ${chunkIndex} with path ${req.file.path}`);
+      
+      // Store the chunk path in the specific index
       uploadStatus.chunks[chunkIndex] = req.file.path;
       uploadStatus.receivedChunks++;
       uploadStatus.totalChunks = totalChunks;
       
-      console.log(`Received chunk ${chunkIndex + 1}/${totalChunks} for upload ${jobId}`);
+      console.log(`Received chunk ${chunkIndex + 1}/${totalChunks} for upload ${jobId}, saved to ${req.file.path}`);
+      console.log(`Current chunks: ${Object.keys(uploadStatus.chunks).join(', ')}`);
       
       // Respond with success
       res.json({
