@@ -80,10 +80,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                  transcriptionCheckbox.checked || 
                                  technicalReportCheckbox.checked;
         
-        // Update button state - make API key optional
-        processBtn.disabled = !(isFileSelected && isOptionSelected);
+        // Check if API key is provided
+        const isApiKeyProvided = apiKey.value.trim().length > 0;
         
-        return isFileSelected && isOptionSelected;
+        // Update button state - API key is now mandatory
+        processBtn.disabled = !(isFileSelected && isOptionSelected && isApiKeyProvided);
+        
+        return isFileSelected && isOptionSelected && isApiKeyProvided;
     }
 
     // Add event listener for API key field
@@ -182,6 +185,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Ensure API key is provided
+        if (!apiKey.value.trim()) {
+            alert('Please enter your Google Gemini API key.');
+            return;
+        }
+
         isProcessing = true;
         updateUI();
         
@@ -196,44 +205,103 @@ document.addEventListener('DOMContentLoaded', () => {
         progressSection.classList.remove('hidden');
         
         try {
-            // Create FormData object
-            const formData = new FormData();
-            formData.append('file', selectedFile);
+            // Initialize upload
+            updateProgress(5, 'Initializing upload...');
             
-            // Add processing options from advanced settings
-            formData.append('tier', tierSelect.value);
-            formData.append('screenshotCount', screenshotCount.value);
-            formData.append('audioChunkMinutes', audioChunkMinutes.value);
-            formData.append('generateReport', technicalReportCheckbox.checked ? 'true' : 'false');
-            formData.append('streamResponse', streamResponse.checked ? 'true' : 'false');
-            
-            // Add optional parameters if provided
-            if (instructions.value.trim()) {
-                formData.append('instructions', instructions.value.trim());
-            }
-            
-            // Only append API key if provided in the form
-            if (apiKey.value.trim()) {
-                formData.append('apiKey', apiKey.value.trim());
-            }
-            
-            // Start the request
-            updateProgress(5, 'Starting processing...');
-            
-            const response = await fetch('/api/process', {
+            // First create a job ID
+            const initResponse = await fetch('/api/init-upload', {
                 method: 'POST',
-                body: formData,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filename: selectedFile.name,
+                    fileSize: selectedFile.size,
+                    fileType: selectedFile.type,
+                    
+                    // Include processing options
+                    tier: tierSelect.value,
+                    screenshotCount: screenshotCount.value,
+                    audioChunkMinutes: audioChunkMinutes.value,
+                    generateReport: technicalReportCheckbox.checked ? 'true' : 'false',
+                    streamResponse: streamResponse.checked ? 'true' : 'false',
+                    
+                    // Include API key and instructions if provided
+                    apiKey: apiKey.value.trim(),
+                    instructions: instructions.value.trim() || undefined
+                }),
                 signal
             });
             
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => null);
+            if (!initResponse.ok) {
+                const errorData = await initResponse.json().catch(() => null);
+                throw new Error(`Server error during initialization: ${initResponse.status}: ${errorData?.error || 'Unknown error'}`);
+            }
+            
+            const { jobId, uploadUrls } = await initResponse.json();
+            currentJobId = jobId;
+            
+            // Prepare for chunked upload
+            const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+            const totalChunks = Math.ceil(selectedFile.size / CHUNK_SIZE);
+            
+            updateProgress(10, `Uploading file in ${totalChunks} chunks...`);
+            
+            // Upload each chunk
+            for (let chunk = 0; chunk < totalChunks; chunk++) {
+                if (abortController.signal.aborted) {
+                    throw new Error('Upload cancelled by user');
+                }
+                
+                const start = chunk * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, selectedFile.size);
+                const fileChunk = selectedFile.slice(start, end);
+                
+                // Create form data for this chunk
+                const formData = new FormData();
+                formData.append('chunk', fileChunk);
+                formData.append('chunkIndex', chunk.toString());
+                formData.append('totalChunks', totalChunks.toString());
+                
+                // Upload this chunk
+                const chunkResponse = await fetch(`/api/upload-chunk/${jobId}`, {
+                    method: 'POST',
+                    body: formData,
+                    signal
+                });
+                
+                if (!chunkResponse.ok) {
+                    const errorData = await chunkResponse.json().catch(() => null);
+                    throw new Error(`Error uploading chunk ${chunk+1}/${totalChunks}: ${errorData?.error || 'Unknown error'}`);
+                }
+                
+                // Update progress based on uploaded chunks
+                const uploadProgress = Math.floor(15 + ((chunk + 1) / totalChunks) * 20);
+                updateProgress(uploadProgress, `Uploaded chunk ${chunk+1}/${totalChunks}`);
+            }
+            
+            // Finalize the upload and start processing
+            updateProgress(30, 'Upload complete, starting processing...');
+            
+            const processResponse = await fetch(`/api/process-uploaded/${jobId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    streamResponse: streamResponse.checked
+                }),
+                signal
+            });
+            
+            if (!processResponse.ok) {
+                const errorData = await processResponse.json().catch(() => null);
                 if (errorData && errorData.code === 'FILE_TOO_LARGE') {
                     throw new Error('File too large. Maximum file size is 2GB.');
-                } else if (response.status === 413) {
+                } else if (processResponse.status === 413) {
                     throw new Error('File too large. The server rejected the upload.');
                 } else {
-                    throw new Error(`Server responded with ${response.status}: ${response.statusText || errorData?.error || 'Unknown error'}`);
+                    throw new Error(`Server responded with ${processResponse.status}: ${processResponse.statusText || errorData?.error || 'Unknown error'}`);
                 }
             }
             
@@ -241,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (streamResponse.checked) {
                 console.log('Using streaming response mode');
                 // For streaming response, set up event source
-                const reader = response.body.getReader();
+                const reader = processResponse.body.getReader();
                 let receivedLength = 0;
                 let lastProgressUpdate = Date.now();
                 let buffer = ''; // Buffer for incomplete messages
@@ -332,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateProgress(100, 'Processing complete!');
             } else {
                 // Non-streaming response - poll for status
-                const responseData = await response.json();
+                const responseData = await processResponse.json();
                 currentJobId = responseData.jobId;
                 
                 // Start polling for job status

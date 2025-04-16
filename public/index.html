@@ -14,6 +14,15 @@
 
     <main>
         <section class="card-container">
+            <h2>API Key</h2>
+            <div class="form-group">
+                <label for="apiKey">Google Gemini API Key (required):</label>
+                <input type="text" id="apiKey" class="form-control" placeholder="Enter your Google Gemini API key" required>
+                <p class="field-note">Your API key is required to process files and will not be stored on our servers</p>
+            </div>
+        </section>
+
+        <section class="card-container">
             <h2>Upload Audio</h2>
             <div class="file-input-container">
                 <input type="file" id="fileInput" accept="audio/*,video/*" class="hidden">
@@ -76,11 +85,6 @@
                 <div class="form-group">
                     <label for="instructions">Processing Instructions:</label>
                     <textarea id="instructions" class="form-control" placeholder="Optional: Add specific instructions for processing (e.g., 'Focus on technical details')"></textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="apiKey">Google Gemini API Key (required):</label>
-                    <input type="text" id="apiKey" class="form-control" placeholder="Enter your Google Gemini API key">
                 </div>
                 
                 <div class="form-group checkbox-item">
