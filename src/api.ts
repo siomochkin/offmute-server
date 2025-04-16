@@ -549,6 +549,11 @@ app.post('/api/process', uploadHandler, async (req, res) => {
     } else {
       console.log('Beginning background processing for polling mode');
       // Process the file for polling mode
+      // Create a mock request here as well to pass to processPollingFile
+      const mockReq: any = {
+        file: req.file,
+        body: req.body
+      };
       processPollingFile(mockReq, outputDir, jobId);
     }
   } catch (error) {
