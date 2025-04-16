@@ -607,7 +607,7 @@ app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
     // Create the final file from chunks
     const outputFile = path.join(uploadStatus.outputDir, uploadStatus.filename);
     console.log(`Will write assembled file to: ${outputFile}`);
-    
+
     try {
       // Ensure the output directory exists
       if (!fs.existsSync(uploadStatus.outputDir)) {
@@ -615,12 +615,33 @@ app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
         fs.mkdirSync(uploadStatus.outputDir, { recursive: true });
       }
       
+      // Check permissions on the output directory
+      try {
+        fs.accessSync(uploadStatus.outputDir, fs.constants.W_OK);
+        console.log(`Output directory ${uploadStatus.outputDir} is writable`);
+      } catch (err) {
+        console.error(`Output directory ${uploadStatus.outputDir} is not writable:`, err);
+        // Try to fix permissions
+        try {
+          fs.chmodSync(uploadStatus.outputDir, 0o755);
+          console.log(`Updated permissions on ${uploadStatus.outputDir}`);
+        } catch (chmodErr) {
+          console.error(`Failed to update permissions:`, chmodErr);
+        }
+      }
+      
+      // Try writing to a temporary file first
+      const tempOutputFile = `${outputFile}.tmp`;
+      console.log(`Writing to temporary file: ${tempOutputFile}`);
+      
       // Create a write stream for the final file
-      const writeStream = fs.createWriteStream(outputFile);
-      console.log(`Created write stream for: ${outputFile}`);
+      const writeStream = fs.createWriteStream(tempOutputFile);
+      console.log(`Created write stream for: ${tempOutputFile}`);
       
       // Process chunks in order
       let missingChunks: number[] = [];
+      let totalBytesWritten = 0;
+      
       for (let i = 0; i < uploadStatus.totalChunks; i++) {
         const chunkPath = uploadStatus.chunks[i];
         
@@ -636,7 +657,20 @@ app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
         console.log(`Reading chunk data from: ${chunkPath}`);
         const chunkData = fs.readFileSync(chunkPath);
         console.log(`Read ${chunkData.length} bytes from chunk ${i}`);
-        writeStream.write(chunkData);
+        
+        // Write chunk data
+        if (writeStream.write(chunkData)) {
+          totalBytesWritten += chunkData.length;
+          console.log(`Wrote ${chunkData.length} bytes to temp file, total: ${totalBytesWritten}`);
+        } else {
+          console.log(`Buffer full, waiting for drain event`);
+          // Wait for drain event before continuing
+          await new Promise<void>(resolve => {
+            writeStream.once('drain', () => resolve());
+          });
+          totalBytesWritten += chunkData.length;
+          console.log(`Wrote ${chunkData.length} bytes after drain, total: ${totalBytesWritten}`);
+        }
         
         // Delete the chunk file to free up space
         try {
@@ -647,18 +681,38 @@ app.post('/api/process-uploaded/:jobId', express.json(), async (req, res) => {
         }
       }
       
-      // Close the write stream
-      writeStream.end();
-      console.log(`Closed write stream for: ${outputFile}`);
+      // Close the write stream and handle promises properly
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', () => {
+          console.log(`Write stream finished. Total bytes written: ${totalBytesWritten}`);
+          resolve();
+        });
+        writeStream.on('error', (err) => {
+          console.error(`Write stream error:`, err);
+          reject(err);
+        });
+        writeStream.end();
+      });
+      
+      console.log(`Closed write stream for: ${tempOutputFile}`);
       
       // If we have missing chunks, throw an error
       if (missingChunks.length > 0) {
         throw new Error(`Missing chunks: ${missingChunks.join(', ')}`);
       }
       
-      // Verify the file was created successfully
+      // Verify the temporary file was created successfully
+      if (!fs.existsSync(tempOutputFile)) {
+        throw new Error(`Temporary output file was not created at: ${tempOutputFile}`);
+      }
+      
+      // Rename the temporary file to the final file
+      console.log(`Renaming ${tempOutputFile} to ${outputFile}`);
+      fs.renameSync(tempOutputFile, outputFile);
+      
+      // Verify the final file was created successfully
       if (!fs.existsSync(outputFile)) {
-        throw new Error(`Output file was not created at: ${outputFile}`);
+        throw new Error(`Output file was not created at: ${outputFile} after rename`);
       }
       
       const stats = fs.statSync(outputFile);
