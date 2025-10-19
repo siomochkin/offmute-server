@@ -17,6 +17,29 @@ import {
   sanitizePath,
 } from "./utils/sanitize";
 
+// New simplified model options
+const SIMPLE_MODELS = {
+  pro: {
+    description: "gemini-2.5-pro",
+    transcription: "gemini-2.5-pro",
+    report: "gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+  },
+  flash: {
+    description: "gemini-2.5-flash",
+    transcription: "gemini-2.5-flash",
+    report: "gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+  },
+  "flash-lite": {
+    description: "gemini-2.5-flash-lite",
+    transcription: "gemini-2.5-flash-lite",
+    report: "gemini-2.5-flash-lite",
+    label: "Gemini 2.5 Flash Lite",
+  },
+} as const;
+
+// Legacy tiers for backward compatibility
 const MODEL_TIERS = {
   first: {
     description: "gemini-2.0-pro-exp-02-05",
@@ -55,6 +78,9 @@ const MODEL_TIERS = {
     label: "Experimental Budget Tier (Gemini 2.5 Flash Preview)",
   },
 } as const;
+
+// Combined model configurations
+const ALL_MODELS = { ...SIMPLE_MODELS, ...MODEL_TIERS } as const;
 
 function getVideoDuration(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -100,7 +126,7 @@ async function findFiles(dir: string): Promise<string[]> {
 
 async function processFile(
   inputFile: string,
-  tier: keyof typeof MODEL_TIERS,
+  modelOption: keyof typeof ALL_MODELS,
   saveIntermediates: boolean,
   intermediatesDir: string | null,
   screenshotCount: number,
@@ -140,7 +166,7 @@ async function processFile(
 
   const startTime = Date.now();
   console.log(`\nProcessing: ${inputFile}`);
-  console.log(`Using: ${MODEL_TIERS[tier].label}`);
+  console.log(`Using: ${ALL_MODELS[modelOption].label}`);
   if (userInstructions) {
     console.log(`Custom instructions: ${userInstructions}`);
   }
@@ -152,11 +178,11 @@ async function processFile(
     const videoDuration = await getVideoDuration(inputFile);
 
     const descriptionResult = await generateDescription(inputFile, {
-      screenshotModel: MODEL_TIERS[tier].description,
+      screenshotModel: ALL_MODELS[modelOption].description,
       screenshotCount,
-      audioModel: MODEL_TIERS[tier].description,
+      audioModel: ALL_MODELS[modelOption].description,
       transcriptionChunkMinutes: audioChunkMinutes,
-      mergeModel: MODEL_TIERS[tier].description,
+      mergeModel: ALL_MODELS[modelOption].description,
       outputPath: outputDir,
       showProgress: true,
       userInstructions,
@@ -166,7 +192,7 @@ async function processFile(
       inputFile,
       descriptionResult,
       {
-        transcriptionModel: MODEL_TIERS[tier].transcription,
+        transcriptionModel: ALL_MODELS[modelOption].transcription,
         outputPath: path.dirname(inputFile),
         showProgress: true,
         userInstructions,
@@ -185,7 +211,7 @@ async function processFile(
         descriptionResult.finalDescription,
         transcriptionResult.chunkTranscriptions.join("\n\n"),
         {
-          model: MODEL_TIERS[tier].report,
+          model: ALL_MODELS[modelOption].report,
           outputPath: reportOutputPath,
           reportName: reportName,
           showProgress: true,
@@ -245,9 +271,13 @@ async function run() {
   program
     .argument("<input>", "Input video file or directory path")
     .option(
+      "-m, --model <model>",
+      "Model selection (pro, flash, flash-lite)",
+      "pro"
+    )
+    .option(
       "-t, --tier <tier>",
-      "Processing tier (first, business, economy, budget, experimental)",
-      "business"
+      "[DEPRECATED] Processing tier (first, business, economy, budget, experimental) - use --model instead"
     )
     .option(
       "-s, --save-intermediates",
@@ -277,7 +307,7 @@ async function run() {
       "-i, --instructions <text>",
       "Custom context or instructions to include in AI prompts"
     )
-    .version("1.0.0");
+    .version("0.1.4");
 
   program.parse();
 
@@ -290,11 +320,25 @@ async function run() {
   const options = program.opts();
   const input = program.args[0];
 
-  if (!input || !MODEL_TIERS[options.tier as keyof typeof MODEL_TIERS]) {
-    console.error(chalk.red("Error: Invalid input path or tier selection"));
-    console.log(chalk.yellow("\nAvailable tiers:"));
-    Object.entries(MODEL_TIERS).forEach(([key, value]) => {
+  // Handle model/tier selection with backward compatibility
+  let modelOption: keyof typeof ALL_MODELS;
+  if (options.tier) {
+    console.log(chalk.yellow("Warning: --tier is deprecated. Please use --model instead."));
+    modelOption = options.tier as keyof typeof ALL_MODELS;
+  } else {
+    modelOption = options.model as keyof typeof ALL_MODELS;
+  }
+
+  if (!input || !ALL_MODELS[modelOption]) {
+    console.error(chalk.red("Error: Invalid input path or model selection"));
+    console.log(chalk.yellow("\nAvailable models:"));
+    console.log(chalk.cyan("Simple model options:"));
+    Object.entries(SIMPLE_MODELS).forEach(([key, value]) => {
       console.log(chalk.cyan(`- ${key}: ${value.label}`));
+    });
+    console.log(chalk.yellow("\nLegacy tier options (deprecated):"));
+    Object.entries(MODEL_TIERS).forEach(([key, value]) => {
+      console.log(chalk.gray(`- ${key}: ${value.label}`));
     });
     process.exit(1);
   }
@@ -346,7 +390,7 @@ console.log(
     try {
       await processFile(
         file,
-        options.tier as keyof typeof MODEL_TIERS,
+        modelOption,
         options.saveIntermediates,
         options.intermediatesDir || null,
         parseInt(options.screenshotCount),
