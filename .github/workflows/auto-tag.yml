@@ -1,0 +1,88 @@
+name: Auto Tag on Push
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+      - '.gitignore'
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Get current version
+        id: current-version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+      - name: Check if tag exists
+        id: check-tag
+        run: |
+          if git rev-parse "v${{ steps.current-version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.current-version.outputs.version }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.current-version.outputs.version }} does not exist"
+          fi
+
+      - name: Create and push tag
+        if: steps.check-tag.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.current-version.outputs.version }}" -m "Release v${{ steps.current-version.outputs.version }}"
+          git push origin "v${{ steps.current-version.outputs.version }}"
+          echo "Created and pushed tag v${{ steps.current-version.outputs.version }}"
+
+      - name: Create GitHub Release
+        if: steps.check-tag.outputs.exists == 'false'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.current-version.outputs.version }}
+          release_name: Release v${{ steps.current-version.outputs.version }}
+          body: |
+            ## OffMute v${{ steps.current-version.outputs.version }}
+
+            ### Docker Image
+            Pull the latest image:
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.current-version.outputs.version }}
+            docker pull ghcr.io/${{ github.repository }}:latest
+            ```
+
+            ### Docker Compose
+            ```bash
+            GEMINI_API_KEY=your_key docker-compose up -d
+            ```
+
+            ### Changes
+            ${{ github.event.head_commit.message }}
+
+            ---
+            *This release was automatically created by GitHub Actions*
+          draft: false
+          prerelease: false
