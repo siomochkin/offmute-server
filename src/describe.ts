@@ -20,6 +20,7 @@ interface GenerateDescriptionOptions {
   mergeModel: string;
   outputPath?: string;
   showProgress?: boolean;
+  userInstructions?: string;
 }
 
 export interface GenerateDescriptionResult {
@@ -89,7 +90,14 @@ export async function generateDescription(
     mergeModel,
     outputPath,
     showProgress = false,
+    userInstructions,
   } = options;
+
+  // Ensure we have a valid output path for intermediate files
+  let intermediatesDir: string | undefined = undefined;
+  if (outputPath) {
+    intermediatesDir = outputPath;
+  }
 
   // Initialize progress bars if needed
   let multibar: MultiBar | undefined;
@@ -124,21 +132,24 @@ export async function generateDescription(
       isVideo
         ? extractVideoScreenshots(inputFile, {
             screenshotCount,
-            outputDir: outputPath
-              ? path.join(outputPath, "screenshots")
+            outputDir: intermediatesDir
+              ? path.join(intermediatesDir, "screenshots")
               : undefined,
           }).then(async (screenshots) => {
             if (screenshotBar) screenshotBar.update(50);
 
             const imageDescription = await generateWithGemini(
               screenshotModel,
-              IMAGE_DESC_PROMPT(screenshots.map((s) => s.path).join(", ")),
+              IMAGE_DESC_PROMPT(
+                screenshots.map((s) => s.path).join(", "),
+                userInstructions
+              ),
               screenshots.map((s) => ({ path: s.path }))
             );
 
             if (screenshotBar) screenshotBar.update(100);
 
-            await saveIntermediateOutput(outputPath, {
+            await saveIntermediateOutput(intermediatesDir, {
               imageDescription: imageDescription.text,
             });
 
@@ -153,19 +164,21 @@ export async function generateDescription(
       processAudioFile(inputFile, {
         chunkMinutes: transcriptionChunkMinutes,
         tagMinutes: descriptionChunkMinutes,
-        outputDir: outputPath ? path.join(outputPath, "audio") : undefined,
+        outputDir: intermediatesDir
+          ? path.join(intermediatesDir, "audio")
+          : undefined,
       }).then(async (chunks) => {
         if (audioBar) audioBar.update(50);
 
         const audioDescription = await generateWithGemini(
           audioModel,
-          AUDIO_DESC_PROMPT(path.basename(inputFile)),
+          AUDIO_DESC_PROMPT(path.basename(inputFile), userInstructions),
           [{ path: chunks.tagSample }]
         );
 
         if (audioBar) audioBar.update(100);
 
-        await saveIntermediateOutput(outputPath, {
+        await saveIntermediateOutput(intermediatesDir, {
           audioDescription: audioDescription.text,
         });
 
@@ -185,14 +198,14 @@ export async function generateDescription(
 
     const finalDescription = await generateWithGemini(
       mergeModel,
-      MERGE_DESC_PROMPT(descriptionsToMerge),
+      MERGE_DESC_PROMPT(descriptionsToMerge, userInstructions),
       []
     );
 
     if (processingBar) processingBar.update(100);
 
-    await saveIntermediateOutput(outputPath, {
-      prompt: MERGE_DESC_PROMPT(descriptionsToMerge),
+    await saveIntermediateOutput(intermediatesDir, {
+      prompt: MERGE_DESC_PROMPT(descriptionsToMerge, userInstructions),
       finalDescription: finalDescription.text,
     });
 
@@ -208,13 +221,13 @@ export async function generateDescription(
       generatedFiles: {
         screenshots: screenshotResult.files,
         audioChunks: audioResult.files,
-        intermediateOutputPath: outputPath,
+        intermediateOutputPath: intermediatesDir,
       },
     };
   } catch (error) {
     // Save error state if output path is provided
-    if (outputPath) {
-      await saveIntermediateOutput(outputPath, {
+    if (intermediatesDir) {
+      await saveIntermediateOutput(intermediatesDir, {
         error: error instanceof Error ? error.message : String(error),
       });
     }

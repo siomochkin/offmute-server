@@ -3,11 +3,13 @@ import fs from "fs";
 import { generateDescription, GenerateDescriptionResult } from "./describe";
 import { generateWithGemini } from "./utils/gemini";
 import { TRANSCRIPTION_PROMPT } from "./prompts";
+import { sanitizeFileName } from "./utils/sanitize";
 
 interface TranscriptionOptions {
   transcriptionModel: string;
   outputPath?: string;
   showProgress?: boolean;
+  userInstructions?: string;
 }
 
 interface TranscriptionResult {
@@ -66,6 +68,42 @@ function getLastNLines(text: string, n: number): string {
   return lines.slice(-n).join("\n");
 }
 
+// New function to generate deterministic metadata
+function generateMetadata(
+  inputFile: string,
+  userInstructions?: string
+): string {
+  // Get file stats for creation and modification times
+  const stats = fs.statSync(inputFile);
+  const creationTime = stats.birthtime;
+  const modificationTime = stats.mtime;
+
+  // Get current time for processing timestamp
+  const processingTime = new Date();
+
+  // Format dates in a clean, consistent format
+  const formatDate = (date: Date): string => {
+    return date.toISOString().replace("T", " ").substring(0, 19);
+  };
+
+  // Generate metadata block
+  return `# File Metadata
+- **Filename:** ${path.basename(inputFile)}
+- **File Created:** ${formatDate(creationTime)}
+- **File Modified:** ${formatDate(modificationTime)}
+- **Processing Date:** ${formatDate(processingTime)}
+- **File Size:** ${(stats.size / (1024 * 1024)).toFixed(2)} MB
+- **File Path:** ${inputFile}${
+    userInstructions
+      ? `
+- **User Instructions:** ${userInstructions}`
+      : ""
+  }
+
+*Note: This metadata is generated from the file properties and may not reflect the actual date/time when the content was recorded.*
+`;
+}
+
 export async function generateTranscription(
   inputFile: string,
   descriptionResult: GenerateDescriptionResult,
@@ -75,11 +113,22 @@ export async function generateTranscription(
     transcriptionModel,
     outputPath = path.dirname(inputFile),
     showProgress = false,
+    userInstructions,
   } = options;
 
   // Create output directory if it doesn't exist
   if (!fs.existsSync(outputPath)) {
     fs.mkdirSync(outputPath, { recursive: true });
+  }
+
+  // Determine the intermediates directory (should have been created in the describe step)
+  const intermediatesDir =
+    descriptionResult.generatedFiles.intermediateOutputPath ||
+    path.join(outputPath, ".offmute");
+
+  // Create intermediates directory if it doesn't exist
+  if (!fs.existsSync(intermediatesDir)) {
+    fs.mkdirSync(intermediatesDir, { recursive: true });
   }
 
   // Save initial prompt templates and configuration
@@ -93,12 +142,8 @@ export async function generateTranscription(
     chunkCount: descriptionResult.generatedFiles.audioChunks.length,
   };
 
-  // Save config.json in the main intermediates directory
-  const configPath = path.join(
-    descriptionResult.generatedFiles.intermediateOutputPath || outputPath,
-    "config.json"
-  );
-
+  // Save config.json in the intermediates directory
+  const configPath = path.join(intermediatesDir, "config.json");
   fs.writeFileSync(configPath, JSON.stringify(configOutput, null, 2));
 
   const chunks = descriptionResult.generatedFiles.audioChunks;
@@ -110,17 +155,47 @@ export async function generateTranscription(
     console.log(`Starting transcription of ${chunkCount} chunks...`);
   }
 
-  // Create transcription directory in the same intermediates folder
-  const transcriptionDir = path.join(
-    descriptionResult.generatedFiles.intermediateOutputPath || outputPath,
-    "transcription"
-  );
+  // Create transcription directory within the intermediates folder
+  const transcriptionDir = path.join(intermediatesDir, "transcription");
   if (!fs.existsSync(transcriptionDir)) {
     fs.mkdirSync(transcriptionDir, { recursive: true });
   }
 
+  // Generate output filename with sanitization
+  const inputFileName = path.basename(inputFile, path.extname(inputFile));
+  const sanitizedFileName = sanitizeFileName(inputFileName);
+  const transcriptionPath = path.join(
+    outputPath,
+    `${sanitizedFileName}_transcription.md`
+  );
+
+  // Generate metadata for the file
+  const metadata = generateMetadata(inputFile, userInstructions);
+
+  // Initialize the output file with metadata and headers
+  const initialContent = [
+    metadata,
+    "# Meeting Description",
+    descriptionResult.finalDescription,
+    "\n# Audio Analysis",
+    descriptionResult.audioDescription,
+    "\n# Visual Analysis",
+    descriptionResult.imageDescription,
+    "\n# Full Transcription",
+    "*(Transcription in progress...)*",
+  ].join("\n\n");
+
+  // Write initial content to file
+  fs.writeFileSync(transcriptionPath, initialContent, "utf-8");
+
+  if (showProgress) {
+    console.log(`Initial transcription file created at: ${transcriptionPath}`);
+  }
+
   // Process chunks sequentially to maintain context
   let previousTranscription = "";
+  let transcriptionContent = "";
+
   for (let i = 0; i < chunkCount; i++) {
     if (showProgress) {
       console.log(`Processing chunk ${i + 1}/${chunkCount}`);
@@ -131,7 +206,8 @@ export async function generateTranscription(
       descriptionResult.finalDescription,
       i + 1,
       chunkCount,
-      previousTranscription
+      previousTranscription,
+      userInstructions
     );
 
     try {
@@ -159,9 +235,9 @@ export async function generateTranscription(
           `Error transcribing chunk ${i + 1}:`,
           transcriptionResponse.error
         );
-        chunkTranscriptions.push(
-          `\n[Transcription error for chunk ${i + 1}]\n`
-        );
+        const errorText = `\n[Transcription error for chunk ${i + 1}]\n`;
+        chunkTranscriptions.push(errorText);
+        transcriptionContent += errorText;
       } else {
         // Clean up the transcription text
         let transcriptionText = transcriptionResponse.text.trim();
@@ -170,8 +246,23 @@ export async function generateTranscription(
         transcriptionText = transcriptionText.replace(/~\[/g, "\n\n~[");
 
         chunkTranscriptions.push(transcriptionText);
+        transcriptionContent += (i > 0 ? "\n\n" : "") + transcriptionText;
 
         previousTranscription = getLastNLines(transcriptionText, 20);
+      }
+
+      // Update the transcription file with the latest content
+      updateTranscriptionFile(
+        transcriptionPath,
+        transcriptionContent,
+        i + 1,
+        chunkCount
+      );
+
+      if (showProgress) {
+        console.log(
+          `Transcription file updated (${i + 1}/${chunkCount} chunks)`
+        );
       }
     } catch (error) {
       console.error(`Failed to transcribe chunk ${i + 1}:`, error);
@@ -182,31 +273,28 @@ export async function generateTranscription(
         response: "",
         error: error instanceof Error ? error.message : String(error),
       });
-      chunkTranscriptions.push(`\n[Transcription error for chunk ${i + 1}]\n`);
+      const errorText = `\n[Transcription error for chunk ${i + 1}]\n`;
+      chunkTranscriptions.push(errorText);
+      transcriptionContent += errorText;
+
+      // Update the transcription file with the error
+      updateTranscriptionFile(
+        transcriptionPath,
+        transcriptionContent,
+        i + 1,
+        chunkCount
+      );
     }
   }
 
-  // Combine all content into a single document with proper spacing
-  const combinedContent = [
-    "# Meeting Description",
-    descriptionResult.finalDescription,
-    "\n# Audio Analysis",
-    descriptionResult.audioDescription,
-    "\n# Visual Analysis",
-    descriptionResult.imageDescription,
-    "\n# Full Transcription",
-    ...chunkTranscriptions.map((chunk) => chunk.trim()), // Trim each chunk
-  ].join("\n\n");
-
-  // Generate output filenames
-  const inputFileName = path.basename(inputFile, path.extname(inputFile));
-  const transcriptionPath = path.join(
-    outputPath,
-    `${inputFileName}_transcription.md`
+  // Final update to the transcription file
+  updateTranscriptionFile(
+    transcriptionPath,
+    transcriptionContent,
+    chunkCount,
+    chunkCount,
+    true
   );
-
-  // Save the combined content
-  fs.writeFileSync(transcriptionPath, combinedContent, "utf-8");
 
   // Also save raw transcriptions separately
   fs.writeFileSync(
@@ -224,4 +312,43 @@ export async function generateTranscription(
     chunkTranscriptions,
     intermediateOutputPath: transcriptionDir,
   };
+}
+
+// Helper function to update the transcription file incrementally
+function updateTranscriptionFile(
+  filePath: string,
+  transcriptionContent: string,
+  currentChunk: number,
+  totalChunks: number,
+  isComplete: boolean = false
+): void {
+  // Read the current file content
+  const currentContent = fs.readFileSync(filePath, "utf-8");
+
+  // Find the position where we need to update
+  const transcriptionHeaderPos = currentContent.indexOf("# Full Transcription");
+  if (transcriptionHeaderPos === -1) return;
+
+  // Create the new content by replacing everything after the transcription header
+  const contentBeforeTranscription = currentContent.substring(
+    0,
+    transcriptionHeaderPos + "# Full Transcription".length
+  );
+
+  // Add progress indicator if not complete
+  const progressIndicator = isComplete
+    ? ""
+    : `\n\n*Progress: ${currentChunk}/${totalChunks} chunks processed (${Math.round(
+        (currentChunk / totalChunks) * 100
+      )}%)*`;
+
+  // Create the new content
+  const newContent =
+    contentBeforeTranscription +
+    progressIndicator +
+    "\n\n" +
+    transcriptionContent;
+
+  // Write the updated content back to the file
+  fs.writeFileSync(filePath, newContent, "utf-8");
 }

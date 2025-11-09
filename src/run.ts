@@ -4,13 +4,42 @@ import path from "path";
 import fs from "fs";
 import ffmpeg from "fluent-ffmpeg";
 import chalk from "chalk";
+import os from "os";
 
 import { generateDescription } from "./describe";
 import { generateTranscription } from "./transcribe";
 import { generateReport } from "./report";
 import { isAudioFile, isVideoFile } from "./utils/check-type";
 import { checkFFmpeg } from "./utils/ffmpeg-check";
+import {
+  sanitizeDirectoryName,
+  sanitizeFileName,
+  sanitizePath,
+} from "./utils/sanitize";
 
+// New simplified model options
+const SIMPLE_MODELS = {
+  pro: {
+    description: "gemini-2.5-pro",
+    transcription: "gemini-2.5-pro",
+    report: "gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+  },
+  flash: {
+    description: "gemini-2.5-flash",
+    transcription: "gemini-2.5-flash",
+    report: "gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+  },
+  "flash-lite": {
+    description: "gemini-2.5-flash-lite",
+    transcription: "gemini-2.5-flash-lite",
+    report: "gemini-2.5-flash-lite",
+    label: "Gemini 2.5 Flash Lite",
+  },
+} as const;
+
+// Legacy tiers for backward compatibility
 const MODEL_TIERS = {
   first: {
     description: "gemini-2.0-pro-exp-02-05",
@@ -36,7 +65,22 @@ const MODEL_TIERS = {
     report: "gemini-2.0-flash-lite-preview-02-05",
     label: "Budget Tier (Flash for description, Flash Lite for transcription)",
   },
+  experimental: {
+    description: "gemini-2.5-pro-preview-03-25",
+    transcription: "gemini-2.5-pro-preview-03-25",
+    report: "gemini-2.5-pro-preview-03-25",
+    label: "Experimental Tier (Gemini 2.5 Pro Preview)",
+  },
+  experimentalBudget: {
+    description: "gemini-2.5-flash-preview-04-17",
+    transcription: "gemini-2.5-flash-preview-04-17",
+    report: "gemini-2.5-flash-preview-04-17",
+    label: "Experimental Budget Tier (Gemini 2.5 Flash Preview)",
+  },
 } as const;
+
+// Combined model configurations
+const ALL_MODELS = { ...SIMPLE_MODELS, ...MODEL_TIERS } as const;
 
 function getVideoDuration(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -71,6 +115,8 @@ async function findFiles(dir: string): Promise<string[]> {
     if (stat.isDirectory()) {
       files.push(...(await findFiles(fullPath)));
     } else if (isVideoFile(fullPath) || isAudioFile(fullPath)) {
+      // We don't sanitize paths here since we want to keep the original path for file access
+      // But we'll sanitize any output/intermediate directories based on these files
       files.push(fullPath);
     }
   }
@@ -80,42 +126,76 @@ async function findFiles(dir: string): Promise<string[]> {
 
 async function processFile(
   inputFile: string,
-  tier: keyof typeof MODEL_TIERS,
+  modelOption: keyof typeof ALL_MODELS,
   saveIntermediates: boolean,
+  intermediatesDir: string | null,
   screenshotCount: number,
   audioChunkMinutes: number,
   generateReports: boolean,
-  reportsDir?: string
+  reportsDir?: string,
+  userInstructions?: string
 ): Promise<void> {
   const inputBaseName = path.basename(inputFile, path.extname(inputFile));
-  const outputDir = saveIntermediates
-    ? path.join(path.dirname(inputFile), `${inputBaseName}_intermediates`)
-    : undefined;
+  const sanitizedBaseName = sanitizeDirectoryName(inputBaseName);
+
+  // Determine where to store intermediates
+  let outputDir: string | undefined = undefined;
+  if (saveIntermediates) {
+    // If user specified a directory, use that
+    if (intermediatesDir) {
+      outputDir = path.join(intermediatesDir, sanitizedBaseName);
+    } else {
+      // Otherwise use the input file's directory
+      outputDir = path.join(
+        path.dirname(inputFile),
+        `.offmute_${sanitizedBaseName}`
+      );
+    }
+  } else {
+    // If not saving intermediates, use system temp directory with a unique name
+    outputDir = path.join(
+      os.tmpdir(),
+      `offmute_${Date.now()}_${sanitizedBaseName}`
+    );
+  }
+
+  // Create the directory if it doesn't exist
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
 
   const startTime = Date.now();
   console.log(`\nProcessing: ${inputFile}`);
-  console.log(`Using: ${MODEL_TIERS[tier].label}`);
+  console.log(`Using: ${ALL_MODELS[modelOption].label}`);
+  if (userInstructions) {
+    console.log(`Custom instructions: ${userInstructions}`);
+  }
+  if (saveIntermediates) {
+    console.log(`Saving intermediates to: ${outputDir}`);
+  }
 
   try {
     const videoDuration = await getVideoDuration(inputFile);
 
     const descriptionResult = await generateDescription(inputFile, {
-      screenshotModel: MODEL_TIERS[tier].description,
+      screenshotModel: ALL_MODELS[modelOption].description,
       screenshotCount,
-      audioModel: MODEL_TIERS[tier].description,
+      audioModel: ALL_MODELS[modelOption].description,
       transcriptionChunkMinutes: audioChunkMinutes,
-      mergeModel: MODEL_TIERS[tier].description,
+      mergeModel: ALL_MODELS[modelOption].description,
       outputPath: outputDir,
       showProgress: true,
+      userInstructions,
     });
 
     const transcriptionResult = await generateTranscription(
       inputFile,
       descriptionResult,
       {
-        transcriptionModel: MODEL_TIERS[tier].transcription,
+        transcriptionModel: ALL_MODELS[modelOption].transcription,
         outputPath: path.dirname(inputFile),
         showProgress: true,
+        userInstructions,
       }
     );
 
@@ -125,15 +205,17 @@ async function processFile(
 
       // Determine report output path
       const reportOutputPath = reportsDir || path.dirname(inputFile);
+      const reportName = `${sanitizedBaseName}_report`;
 
       const reportResult = await generateReport(
         descriptionResult.finalDescription,
         transcriptionResult.chunkTranscriptions.join("\n\n"),
         {
-          model: MODEL_TIERS[tier].report,
+          model: ALL_MODELS[modelOption].report,
           outputPath: reportOutputPath,
-          reportName: `${inputBaseName}_report`,
+          reportName: reportName,
           showProgress: true,
+          userInstructions,
         }
       );
 
@@ -149,6 +231,15 @@ async function processFile(
       )}s per minute)`
     );
     console.log(`Transcription: ${transcriptionResult.transcriptionPath}`);
+
+    // Clean up temp directory if we're not saving intermediates
+    if (!saveIntermediates) {
+      try {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      } catch (err) {
+        // Silently ignore errors during cleanup
+      }
+    }
   } catch (error) {
     console.error(
       chalk.red(`Error processing ${inputFile}:`),
@@ -180,14 +271,22 @@ async function run() {
   program
     .argument("<input>", "Input video file or directory path")
     .option(
-      "-t, --tier <tier>",
-      "Processing tier (first, business, economy, budget)",
-      "business"
+      "-m, --model <model>",
+      "Model selection (pro, flash, flash-lite)",
+      "pro"
     )
     .option(
-      "-a, --all",
-      "Save all intermediate outputs in separate folders",
+      "-t, --tier <tier>",
+      "[DEPRECATED] Processing tier (first, business, economy, budget, experimental) - use --model instead"
+    )
+    .option(
+      "-s, --save-intermediates",
+      "Save intermediate processing files",
       false
+    )
+    .option(
+      "-id, --intermediates-dir <path>",
+      "Custom directory for intermediate output (defaults to input file location)"
     )
     .option(
       "-sc, --screenshot-count <number>",
@@ -204,7 +303,11 @@ async function run() {
       "-rd, --reports-dir <path>",
       "Custom directory for report output (defaults to input file location)"
     )
-    .version("1.0.0");
+    .option(
+      "-i, --instructions <text>",
+      "Custom context or instructions to include in AI prompts"
+    )
+    .version("0.1.4");
 
   program.parse();
 
@@ -217,13 +320,32 @@ async function run() {
   const options = program.opts();
   const input = program.args[0];
 
-  if (!input || !MODEL_TIERS[options.tier as keyof typeof MODEL_TIERS]) {
-    console.error(chalk.red("Error: Invalid input path or tier selection"));
-    console.log(chalk.yellow("\nAvailable tiers:"));
-    Object.entries(MODEL_TIERS).forEach(([key, value]) => {
+  // Handle model/tier selection with backward compatibility
+  let modelOption: keyof typeof ALL_MODELS;
+  if (options.tier) {
+    console.log(chalk.yellow("Warning: --tier is deprecated. Please use --model instead."));
+    modelOption = options.tier as keyof typeof ALL_MODELS;
+  } else {
+    modelOption = options.model as keyof typeof ALL_MODELS;
+  }
+
+  if (!input || !ALL_MODELS[modelOption]) {
+    console.error(chalk.red("Error: Invalid input path or model selection"));
+    console.log(chalk.yellow("\nAvailable models:"));
+    console.log(chalk.cyan("Simple model options:"));
+    Object.entries(SIMPLE_MODELS).forEach(([key, value]) => {
       console.log(chalk.cyan(`- ${key}: ${value.label}`));
     });
+    console.log(chalk.yellow("\nLegacy tier options (deprecated):"));
+    Object.entries(MODEL_TIERS).forEach(([key, value]) => {
+      console.log(chalk.gray(`- ${key}: ${value.label}`));
+    });
     process.exit(1);
+  }
+
+  // Create intermediates directory if specified
+  if (options.intermediatesDir) {
+    fs.mkdirSync(options.intermediatesDir, { recursive: true });
   }
 
   // Create reports directory if specified
@@ -239,13 +361,23 @@ async function run() {
     process.exit(1);
   }
 
-  console.log(
-    chalk.green(
-      `Found ${files.length} video file${
-        files.length > 1 ? "s" : ""
-      } to process`
-    )
-  );
+console.log(
+  chalk.green(
+    ((audioCount: number) => {
+      const videoCount = files.length - audioCount;
+      const messages: string[] = [];
+      
+      if (audioCount > 0) {
+        messages.push(`Found ${audioCount} audio file${audioCount > 1 ? "s" : ""} to process`);
+      }
+      if (videoCount > 0) {
+        messages.push(`Found ${videoCount} video file${videoCount > 1 ? "s" : ""} to process`);
+      }
+      
+      return messages.join('\n');
+    })(files.filter(fn => isAudioFile(fn)).length)
+  )
+);
 
   const startTime = Date.now();
   const results = {
@@ -258,12 +390,14 @@ async function run() {
     try {
       await processFile(
         file,
-        options.tier as keyof typeof MODEL_TIERS,
-        options.all,
+        modelOption,
+        options.saveIntermediates,
+        options.intermediatesDir || null,
         parseInt(options.screenshotCount),
         parseInt(options.audioChunkMinutes),
         options.report,
-        options.reportsDir
+        options.reportsDir,
+        options.instructions
       );
       results.success++;
     } catch (error) {

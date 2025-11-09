@@ -8,12 +8,14 @@ import {
 } from "./prompts";
 import path from "path";
 import fs from "fs";
+import { sanitizeFileName } from "./utils/sanitize";
 
 interface GenerateReportOptions {
   model: string;
   outputPath: string;
   reportName: string;
   showProgress?: boolean;
+  userInstructions?: string;
 }
 
 export interface GenerateReportResult {
@@ -89,32 +91,212 @@ async function saveReportOutput(
   fs.writeFileSync(outputFile, JSON.stringify(existingData, null, 2));
 }
 
+// New function to generate deterministic metadata
+function generateMetadata(
+  reportName: string,
+  outputPath: string,
+  userInstructions?: string
+): string {
+  // Get current time for processing timestamp
+  const processingTime = new Date();
+
+  // Format date in a clean, consistent format
+  const formatDate = (date: Date): string => {
+    return date.toISOString().replace("T", " ").substring(0, 19);
+  };
+
+  // Generate metadata block
+  return `# File Metadata
+- **Report Name:** ${reportName}
+- **Report Generated:** ${formatDate(processingTime)}
+- **Report Path:** ${path.join(outputPath, `${reportName}.md`)}${
+    userInstructions
+      ? `
+- **User Instructions:** ${userInstructions}`
+      : ""
+  }
+
+*Note: This metadata is generated from the file properties when the report was created.*
+`;
+}
+
+// Helper function to update the report with structure (just titles)
+function updateReportStructure(
+  filePath: string,
+  headings: ReportHeadings
+): void {
+  // Read the current file content
+  const currentContent = fs.readFileSync(filePath, "utf-8");
+
+  // Find the position after the title
+  const titlePos = currentContent.indexOf("# Meeting Report");
+  if (titlePos === -1) return;
+
+  // Create section placeholders
+  const sectionPlaceholders = headings.sections
+    .map((section) => `## ${section.title}\n\n*(Content being generated...)*`)
+    .join("\n\n");
+
+  // Create the new content
+  const newContent =
+    currentContent.substring(0, titlePos + "# Meeting Report".length) +
+    "\n\n" +
+    `*Report structure created. Generating content for ${headings.sections.length} sections...*` +
+    "\n\n" +
+    sectionPlaceholders;
+
+  // Write the updated content back to the file
+  fs.writeFileSync(filePath, newContent, "utf-8");
+}
+
+// Helper function to update a specific section in the report
+function updateReportSection(
+  filePath: string,
+  sectionTitle: string,
+  sectionContent: string,
+  currentSection: number,
+  totalSections: number
+): void {
+  // Read the current file content
+  const currentContent = fs.readFileSync(filePath, "utf-8");
+
+  // Find the section to update
+  const sectionHeaderPos = currentContent.indexOf(`## ${sectionTitle}`);
+  if (sectionHeaderPos === -1) return;
+
+  // Find the end of this section (next section header or end of file)
+  let nextSectionPos = currentContent.indexOf("## ", sectionHeaderPos + 3);
+  if (nextSectionPos === -1) {
+    nextSectionPos = currentContent.length;
+  }
+
+  // Create the new content
+  const newContent =
+    currentContent.substring(
+      0,
+      sectionHeaderPos + `## ${sectionTitle}`.length
+    ) +
+    "\n\n" +
+    sectionContent +
+    "\n\n" +
+    currentContent.substring(nextSectionPos);
+
+  // Add progress indicator after title
+  const titlePos = newContent.indexOf("# Meeting Report");
+  const progressIndicator = `\n\n*Progress: ${currentSection}/${totalSections} sections completed (${Math.round(
+    (currentSection / totalSections) * 100
+  )}%)*`;
+
+  // Find position to insert progress indicator
+  const afterTitlePos = titlePos + "# Meeting Report".length;
+
+  // Insert progress indicator after title
+  const contentWithProgress =
+    newContent.substring(0, afterTitlePos) +
+    progressIndicator +
+    newContent.substring(afterTitlePos);
+
+  // Write the updated content back to the file
+  fs.writeFileSync(filePath, contentWithProgress, "utf-8");
+}
+
+// Helper function to finalize the report by removing progress indicators
+function finalizeReport(filePath: string): void {
+  // Read the current file content
+  const currentContent = fs.readFileSync(filePath, "utf-8");
+
+  // Remove progress indicators and "being generated" messages
+  let finalContent = currentContent.replace(/\*Progress: .*?\*\n\n/g, "");
+  finalContent = finalContent.replace(
+    /\*Report structure created.*?\*\n\n/g,
+    ""
+  );
+  finalContent = finalContent.replace(
+    /\*\(Content being generated\.\.\.\)\*/g,
+    ""
+  );
+  finalContent = finalContent.replace(
+    /\*\(Report generation in progress\.\.\.\)\*/g,
+    ""
+  );
+
+  // Clean up any double newlines that might have been created
+  finalContent = finalContent.replace(/\n\n\n+/g, "\n\n");
+
+  // Write the final content back to the file
+  fs.writeFileSync(filePath, finalContent, "utf-8");
+}
+
 export async function generateReport(
   descriptions: string,
   transcript: string,
   options: GenerateReportOptions
 ): Promise<GenerateReportResult> {
-  const { model, outputPath, reportName, showProgress = false } = options;
+  const {
+    model,
+    outputPath,
+    reportName,
+    showProgress = false,
+    userInstructions,
+  } = options;
 
-  // Create report directory under outputPath
-  const reportDir = path.join(outputPath, "report");
+  // Sanitize the report name to ensure it's filesystem-safe
+  const sanitizedReportName = sanitizeFileName(reportName);
+
+  // Create hidden intermediates directory
+  const intermediatesDir = path.join(outputPath, ".offmute");
+  if (!fs.existsSync(intermediatesDir)) {
+    fs.mkdirSync(intermediatesDir, { recursive: true });
+  }
+
+  // Create report intermediates directory under .offmute
+  const reportDir = path.join(intermediatesDir, "report");
   if (!fs.existsSync(reportDir)) {
     fs.mkdirSync(reportDir, { recursive: true });
   }
+
+  // Generate the report file path with sanitized name
+  const reportPath = path.join(outputPath, `${sanitizedReportName}.md`);
 
   try {
     if (showProgress) {
       console.log("Generating report structure...");
     }
 
+    // Generate metadata for the report
+    const metadata = generateMetadata(
+      sanitizedReportName,
+      outputPath,
+      userInstructions
+    );
+
+    // Initialize the report file with metadata and title
+    const initialContent = [
+      metadata,
+      "# Meeting Report",
+      "\n*(Report generation in progress...)*",
+    ].join("\n\n");
+
+    // Write initial content to file
+    fs.writeFileSync(reportPath, initialContent, "utf-8");
+
+    if (showProgress) {
+      console.log(`Initial report file created at: ${reportPath}`);
+    }
+
     // Save initial prompts
-    const headingsPrompt = REPORT_HEADINGS_PROMPT(descriptions, transcript);
+    const headingsPrompt = REPORT_HEADINGS_PROMPT(
+      descriptions,
+      transcript,
+      userInstructions
+    );
     await saveReportOutput(reportDir, {
       step: "initial_prompt",
       prompt: headingsPrompt,
       data: {
         descriptions,
         transcript,
+        userInstructions,
       },
     });
 
@@ -147,6 +329,9 @@ export async function generateReport(
       console.log(`Generating ${headings.sections.length} sections...`);
     }
 
+    // Update the report with the structure (section titles)
+    updateReportStructure(reportPath, headings);
+
     // Generate content for each section
     const sectionContents: string[] = [];
     for (let i = 0; i < headings.sections.length; i++) {
@@ -165,7 +350,8 @@ export async function generateReport(
           headings,
           section,
           transcript,
-          descriptions
+          descriptions,
+          userInstructions
         );
 
         // Save section prompt
@@ -187,6 +373,8 @@ export async function generateReport(
             temperature: 0.3,
           }
         );
+
+        let sectionContent = "";
 
         if (
           sectionResponse.error ||
@@ -219,16 +407,37 @@ export async function generateReport(
               !retryResponse.error &&
               isValidSectionContent(retryResponse.text)
             ) {
+              sectionContent = retryResponse.text;
               sectionContents.push(
                 `## ${section.title}\n\n${retryResponse.text}`
               );
+            } else {
+              sectionContent = "*Error generating content*";
+              sectionContents.push(
+                `## ${section.title}\n\n*Error generating content*`
+              );
             }
+          } else {
+            sectionContent = "*Error generating content*";
+            sectionContents.push(
+              `## ${section.title}\n\n*Error generating content*`
+            );
           }
         } else {
+          sectionContent = sectionResponse.text;
           sectionContents.push(
             `## ${section.title}\n\n${sectionResponse.text}`
           );
         }
+
+        // Update the report file with the new section
+        updateReportSection(
+          reportPath,
+          section.title,
+          sectionContent,
+          i + 1,
+          headings.sections.length
+        );
 
         await saveReportOutput(reportDir, {
           step: "generate_section",
@@ -246,17 +455,20 @@ export async function generateReport(
         sectionContents.push(
           `## ${section.title}\n\n*Error generating content*`
         );
+
+        // Update the report file with the error
+        updateReportSection(
+          reportPath,
+          section.title,
+          "*Error generating content*",
+          i + 1,
+          headings.sections.length
+        );
       }
     }
 
-    // Combine all sections into final report
-    const reportContent = ["# Meeting Report\n", ...sectionContents].join(
-      "\n\n"
-    );
-
-    // Save the report with custom name
-    const reportPath = path.join(outputPath, `${reportName}.md`);
-    fs.writeFileSync(reportPath, reportContent, "utf-8");
+    // Final update to mark completion
+    finalizeReport(reportPath);
 
     if (showProgress) {
       console.log(`Report generation complete. Saved to: ${reportPath}`);
@@ -278,13 +490,3 @@ export async function generateReport(
     throw error;
   }
 }
-
-// const result = await generateReport(descriptions, transcript, {
-//   model: "gemini-1.5-pro",
-//   outputPath: __dirname + "/../tests/report_tests",
-//   reportName: "test_meeting",
-//   showProgress: true,
-// });
-
-// console.log("Report saved to:", result.reportPath);
-// console.log("Intermediates saved to:", result.intermediateOutputPath);

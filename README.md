@@ -16,10 +16,13 @@
 - 🎯 **Transcription & Diarization**: Convert audio/video content to text while identifying different speakers
 - 🎭 **Smart Speaker Identification**: Attempts to identify speakers by name and role when possible
 - 📊 **Meeting Reports**: Generates structured reports with key points, action items, and participant profiles
-- 🎬 **Video Analysis**: Extracts and analyzes visual information from video meetings, understand when demos are beign didsplayed
+- 🎬 **Video Analysis**: Extracts and analyzes visual information from video meetings, understand when demos are being displayed
 - ⚡ **Multiple Processing Tiers**: From budget-friendly to premium processing options
 - 🔄 **Robust Processing**: Handles long meetings with automatic chunking and proper cleanup
 - 📁 **Flexible Output**: Markdown-formatted transcripts and reports with optional intermediate outputs
+- 🔍 **Real-time Progress**: View transcription and report generation progress in real-time
+- 🎯 **Custom Instructions**: Add your own context or instructions to guide the AI processing
+- 🧹 **Clean Filesystem**: Temporary files are managed cleanly without cluttering your directories
 
 ## 🏃 Quick Start
 
@@ -27,8 +30,11 @@
 # Set your Gemini API key
 export GEMINI_API_KEY=your_key_here
 
-# Run on a meeting recording
+# Run on a meeting recording (uses Gemini 2.5 Pro by default)
 npx offmute path/to/your/meeting.mp4
+
+# Use Flash model for faster processing
+npx offmute path/to/your/meeting.mp4 --model flash
 ```
 
 ## 📦 Installation
@@ -63,19 +69,30 @@ npx offmute <input-file> [options]
 
 Options:
 
-- `-t, --tier <tier>`: Processing tier (first, business, economy, budget) [default: "business"]
-- `-a, --all`: Save all intermediate outputs
-- `-sc, --screenshot-count <number>`: Number of screenshots to extract [default: 4]
+- `-m, --model <model>`: Model selection (pro, flash, flash-lite) [default: "pro"]
+- `-t, --tier <tier>`: [DEPRECATED] Processing tier (first, business, economy, budget, experimental) - use --model instead
+- `-s, --save-intermediates`: Save intermediate processing files
+- `-id, --intermediates-dir <path>`: Custom directory for intermediate output
+- `-sc, --screenshot-count <number>`: Number of screenshots to extract for video [default: 4]
 - `-ac, --audio-chunk-minutes <number>`: Length of audio chunks in minutes [default: 10]
 - `-r, --report`: Generate a structured meeting report
 - `-rd, --reports-dir <path>`: Custom directory for report output
+- `-i, --instructions <text>`: Custom context or instructions to include in AI prompts
 
-### Processing Tiers
+### Model Selection
 
+#### New Simple Model Options (Recommended)
+- **Pro** (`pro`): Uses Gemini 2.5 Pro for all operations - highest quality
+- **Flash** (`flash`): Uses Gemini 2.5 Flash for all operations - balanced performance
+- **Flash Lite** (`flash-lite`): Uses Gemini 2.5 Flash Lite for all operations - fastest and most economical
+
+#### Legacy Processing Tiers (Deprecated but still supported)
 - **First Tier** (`first`): Uses Gemini 2.0 Pro models for all operations
 - **Business Tier** (`business`): Gemini 2.0 Pro for description and report, Gemini 2.0 Flash for transcription
 - **Economy Tier** (`economy`): Gemini 2.0 Flash models for all operations
 - **Budget Tier** (`budget`): Gemini 2.0 Flash for description, Gemini 2.0 Flash Lite for transcription and report
+- **Experimental Tier** (`experimental`): Uses the cutting-edge Gemini 2.5 Pro Preview model for all operations
+- **Experimental Budget Tier** (`experimentalBudget`): Uses the cutting-edge Gemini 2.5 Flash Preview model for all operations
 
 ### As a Module
 
@@ -88,15 +105,17 @@ import {
 
 // Generate description and transcription
 const description = await generateDescription(inputFile, {
-  screenshotModel: "gemini-2.0-pro-exp-02-05",
-  audioModel: "gemini-2.0-pro-exp-02-05",
-  mergeModel: "gemini-2.0-pro-exp-02-05",
+  screenshotModel: "gemini-2.5-pro",
+  audioModel: "gemini-2.5-pro",
+  mergeModel: "gemini-2.5-pro",
   showProgress: true,
+  userInstructions: "Focus on technical content and action items",
 });
 
 const transcription = await generateTranscription(inputFile, description, {
-  transcriptionModel: "gemini-2.0-pro-exp-02-05",
+  transcriptionModel: "gemini-2.5-pro",
   showProgress: true,
+  userInstructions: "Add emotions and tone information for each speaker",
 });
 
 // Generate a structured report
@@ -104,26 +123,81 @@ const report = await generateReport(
   description.finalDescription,
   transcription.chunkTranscriptions.join("\n\n"),
   {
-    model: "gemini-2.0-pro-exp-02-05",
+    model: "gemini-2.5-pro",
     reportName: "meeting_summary",
     showProgress: true,
+    userInstructions: "Highlight all action items with bullet points",
   }
 );
 ```
 
 ## 🔧 Advanced Usage
 
-### Intermediate Outputs
+### Intermediate Files and Directories
 
-When run with the `-a` flag, offmute saves intermediate processing files:
+By default, offmute uses a system temporary directory to store intermediate files and cleans them up when processing completes. If you want to save these files:
+
+```bash
+# Save intermediates in a hidden .offmute_[filename] directory
+npx offmute meeting.mp4 --save-intermediates
+
+# Save intermediates in a custom directory
+npx offmute meeting.mp4 --save-intermediates --intermediates-dir ./processing_files
+```
+
+When saved, intermediate files are organized in a clean structure:
 
 ```
-input_file_intermediates/
+.offmute_meeting/
 ├── screenshots/          # Video screenshots
-├── audio/               # Processed audio chunks
-├── transcription/       # Per-chunk transcriptions
-└── report/             # Report generation data
+├── audio/                # Processed audio chunks
+├── transcription/        # Per-chunk transcriptions
+└── report/               # Report generation data
 ```
+
+### Custom Instructions
+
+You can provide custom instructions to the AI models to focus on specific aspects:
+
+```bash
+# Use Flash model for faster processing
+npx offmute meeting.mp4 --model flash
+
+# Use Flash Lite for the most economical option
+npx offmute long_conference.mp4 --model flash-lite
+
+# Focus on technical details with Pro model (default)
+npx offmute technical_meeting.mp4 -i "Focus on technical terminology and highlight all action items"
+
+# Improve speaker emotion detection with Flash model
+npx offmute interview.mp4 --model flash -i "Pay special attention to emotional tone and hesitations"
+```
+
+### Real-time Progress Tracking
+
+Offmute now creates output files early in the process and updates them incrementally, allowing you to:
+
+1. See transcription progress in real-time
+2. Monitor report generation section by section
+3. Check partial results even for long-running processes
+
+### Model Selection Examples
+
+```bash
+# Use Pro model for highest quality (default)
+npx offmute important_meeting.mp4
+
+# Use Flash model for balanced performance
+npx offmute team_standup.mp4 --model flash
+
+# Use Flash Lite for quick and economical processing
+npx offmute daily_brief.mp4 --model flash-lite
+
+# Combine with custom instructions for best results
+npx offmute strategic_call.mp4 --model pro -i "Focus on financial projections and strategic initiatives"
+```
+
+The Gemini 2.5 models support expanded token output capabilities, allowing for more detailed and comprehensive results, especially for longer meetings or when generating complex reports.
 
 ### Custom Chunk Sizes
 
@@ -152,12 +226,25 @@ offmute uses a multi-stage pipeline:
    - Processes audio chunks with context awareness
    - Identifies and labels speakers
    - Maintains conversation flow across chunks
+   - Shows real-time progress in the output file
 
 3. **Report Generation (Spreadfill)**
    - Uses a unique "Spreadfill" technique:
      1. Generates report structure with section headings
      2. Fills each section independently using full context
      3. Ensures coherent narrative while maintaining detailed coverage
+   - Updates report file in real-time as sections are completed
+
+### Metadata Management
+
+Offmute now includes accurate file metadata in outputs:
+
+- File creation and modification dates
+- Processing timestamp
+- File size and path information
+- Custom instructions (when provided)
+
+This provides reliable context without AI guessing incorrect meeting dates/times.
 
 ### Spreadfill Technique
 
