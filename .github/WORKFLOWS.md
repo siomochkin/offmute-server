@@ -14,7 +14,9 @@ This repository uses GitHub Actions for automated CI/CD processes including buil
 
 **What it does:**
 - Builds multi-architecture Docker images (amd64, arm64)
-- Publishes to GitHub Container Registry (ghcr.io)
+- Publishes to both:
+  - GitHub Container Registry (ghcr.io)
+  - Harbor Registry (harbor.societycell.com)
 - Creates multiple tags:
   - `latest` (for master branch)
   - Version from package.json (e.g., `0.1.6`)
@@ -25,9 +27,15 @@ This repository uses GitHub Actions for automated CI/CD processes including buil
 
 **Docker Images Location:**
 ```bash
+# GitHub Container Registry
 ghcr.io/siomochkin/offmute-server:latest
 ghcr.io/siomochkin/offmute-server:0.1.6
 ghcr.io/siomochkin/offmute-server:master-abc1234
+
+# Harbor Registry
+harbor.societycell.com/societycell/offmute-server:latest
+harbor.societycell.com/societycell/offmute-server:0.1.6
+harbor.societycell.com/societycell/offmute-server:master-abc1234
 ```
 
 ### 2. Auto Tag on Push (`auto-tag.yml`)
@@ -76,14 +84,15 @@ When you push to master with version `0.1.6` in package.json:
 ### Pulling Docker Images
 
 ```bash
-# Pull latest version
+# From GitHub Container Registry
 docker pull ghcr.io/siomochkin/offmute-server:latest
-
-# Pull specific version
 docker pull ghcr.io/siomochkin/offmute-server:0.1.6
-
-# Pull by commit SHA
 docker pull ghcr.io/siomochkin/offmute-server:master-abc1234
+
+# From Harbor Registry
+docker pull harbor.societycell.com/societycell/offmute-server:latest
+docker pull harbor.societycell.com/societycell/offmute-server:0.1.6
+docker pull harbor.societycell.com/societycell/offmute-server:master-abc1234
 ```
 
 ### Using with Docker Compose
@@ -119,10 +128,22 @@ services:
 
 ## Permissions Required
 
+### GitHub Container Registry
 The workflows use `GITHUB_TOKEN` which is automatically provided by GitHub Actions. No additional secrets needed for:
 - Publishing to GitHub Container Registry
 - Creating tags and releases
 - Pushing to repository
+
+### Harbor Registry
+Required repository secrets (Settings → Secrets and variables → Actions):
+- `HARBOR_USERNAME`: Your Harbor registry username
+- `HARBOR_PASSWORD`: Your Harbor registry password
+
+To set up Harbor secrets:
+1. Go to repository Settings → Secrets and variables → Actions
+2. Click "New repository secret"
+3. Add `HARBOR_USERNAME` with your Harbor username
+4. Add `HARBOR_PASSWORD` with your Harbor password
 
 ## Workflow Status Badges
 

@@ -12,8 +12,10 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
+  GITHUB_REGISTRY: ghcr.io
+  HARBOR_REGISTRY: harbor.societycell.com
   IMAGE_NAME: ${{ github.repository }}
+  HARBOR_PROJECT: societycell/offmute-server
 
 jobs:
   build-and-push:
@@ -34,9 +36,17 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Harbor Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Extract version from package.json
         id: package-version
@@ -49,7 +59,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.GITHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -76,6 +88,6 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name: ${{ env.GITHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.meta.outputs.digest }}
           push-to-registry: true
