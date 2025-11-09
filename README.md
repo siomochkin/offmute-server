@@ -4,6 +4,8 @@
 
 [![NPM version](https://img.shields.io/npm/v/offmute.svg)](https://www.npmjs.com/package/offmute)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Docker Publish](https://github.com/siomochkin/offmute-server/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/siomochkin/offmute-server/actions/workflows/docker-publish.yml)
+[![Auto Tag](https://github.com/siomochkin/offmute-server/actions/workflows/auto-tag.yml/badge.svg)](https://github.com/siomochkin/offmute-server/actions/workflows/auto-tag.yml)
 
 **Intelligent meeting transcription and analysis using Google's Gemini models**
 
@@ -287,6 +289,24 @@ OffMute processes audio and video files to:
 - Generate detailed meeting descriptions
 - Create structured reports with key points and action items
 - Extract and analyze visual content from video meetings
+
+## Docker Images
+
+OffMute Server is available as pre-built Docker images from multiple registries:
+
+```bash
+# GitHub Container Registry
+docker pull ghcr.io/siomochkin/offmute-server:latest
+docker pull ghcr.io/siomochkin/offmute-server:0.1.6
+
+# Harbor Registry
+docker pull harbor.societycell.com/societycell/offmute-server:latest
+docker pull harbor.societycell.com/societycell/offmute-server:0.1.6
+```
+
+Images are automatically built and published for:
+- Linux AMD64 (x86_64)
+- Linux ARM64 (Apple Silicon, Raspberry Pi, etc.)
 
 ## Requirements
 
