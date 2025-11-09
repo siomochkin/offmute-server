@@ -218,8 +218,7 @@ export async function generateTranscription(
         {
           maxRetries: 3,
           temperature: 0.2, // Lower temperature for more consistent transcription
-        },
-        apiKey
+        }
       );
 
       // Save chunk progress including prompt and response

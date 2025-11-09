@@ -309,8 +309,7 @@ export async function generateReport(
         maxRetries: 3,
         temperature: 0.2,
         schema: REPORT_HEADINGS_JSONSCHEMA,
-      },
-      apiKey
+      }
     );
 
     if (headingsResponse.error) {
@@ -372,8 +371,7 @@ export async function generateReport(
           {
             maxRetries: 3,
             temperature: 0.3,
-          },
-          apiKey
+          }
         );
 
         let sectionContent = "";
@@ -402,8 +400,7 @@ export async function generateReport(
               {
                 maxRetries: 2,
                 temperature: 0.3,
-              },
-              apiKey
+              }
             );
 
             if (

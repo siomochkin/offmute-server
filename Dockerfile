@@ -28,16 +28,22 @@ RUN npm install --include=dev
 # Copy source files
 COPY --chown=offmute:offmute . .
 
-# Build manually using npx to ensure correct path resolution
-RUN npx tsup && \
-    npx tsc --emitDeclarationOnly --declaration --declarationDir dist && \
-    mv dist/index.d.ts dist/index.d.mts && \
-    cp dist/index.d.mts dist/index.d.cts && \
-    # Clean up dev dependencies after build
-    npm prune --production && \
-    # Remove unnecessary files to reduce attack surface
-    rm -rf .git .github tests && \
-    npm cache clean --force
+# Build the application
+RUN npx tsup
+
+# Generate TypeScript declarations
+RUN npx tsc --emitDeclarationOnly --declaration --declarationDir dist && \
+    mv dist/index.d.ts dist/index.d.mts 2>/dev/null || true && \
+    cp dist/index.d.mts dist/index.d.cts 2>/dev/null || true
+
+# Clean up dev dependencies after build
+RUN npm prune --production
+
+# Remove unnecessary files to reduce attack surface
+RUN rm -rf .git .github tests 2>/dev/null || true
+
+# Clean npm cache
+RUN npm cache clean --force
 
 # Create uploads directory with proper permissions
 RUN mkdir -p /app/uploads && \
