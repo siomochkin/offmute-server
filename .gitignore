@@ -174,3 +174,39 @@ x64
 /test-report.json
 
 ########################### MY STUFF
+
+# Offmute specific files
+uploads/
+*.backup
+*.bak
+*~
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Temporary files
+*.tmp
+.cache/

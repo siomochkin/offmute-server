@@ -43,7 +43,7 @@ GEMINI_API_KEY=your_key_here docker-compose up -d
 ```bash
 curl -F "file=@meeting.mp4;type=video/mp4" \
      -F "generateReport=true" \
-     http://localhost:3000/api/process
+     http://localhost:6543/api/process
 ```
 
 **Response:**
@@ -62,7 +62,7 @@ curl -F "file=@meeting.mp4;type=video/mp4" \
 curl -F "file=@meeting.mp4;type=video/mp4" \
      -F "generateReport=true" \
      -F "streamResponse=true" \
-     http://localhost:3000/api/process
+     http://localhost:6543/api/process
 ```
 
 This will keep the connection open and stream Server-Sent Events (SSE) with live updates as processing progresses:
@@ -83,7 +83,7 @@ This will keep the connection open and stream Server-Sent Events (SSE) with live
 ### 2. Check Job Status
 
 ```bash
-curl http://localhost:3000/api/jobs/1234567890
+curl http://localhost:6543/api/jobs/1234567890
 ```
 
 The status will progress through these stages:
@@ -153,20 +153,20 @@ The status will progress through these stages:
 
 ```bash
 # Download the description
-curl -O http://localhost:3000/api/results/1234567890/description
+curl -O http://localhost:6543/api/results/1234567890/description
 
 # Download the transcription
-curl -O http://localhost:3000/api/results/1234567890/transcription
+curl -O http://localhost:6543/api/results/1234567890/transcription
 
 # Download the report (if generated)
-curl -O http://localhost:3000/api/results/1234567890/report
+curl -O http://localhost:6543/api/results/1234567890/report
 ```
 
 ## 🛡️ Processing Tiers
 
 Choose the processing tier that fits your needs:
 
-- **First Tier** (`first`): Gemini 2.0 Pro models for all operations
+- **First Tier** (`first`): Gemini 1.5 Pro models for all operations
   - Highest quality results
   - More detailed analysis
   - Best speaker identification
@@ -176,12 +176,12 @@ Choose the processing tier that fits your needs:
   - Good transcription quality
   - Great balance of quality and speed
 
-- **Economy Tier** (`economy`): Flash models for all operations
+- **Economy Tier** (`economy`): Gemini 1.5 Flash models for all operations
   - Good all-around quality
   - Faster processing
   - More cost-effective
 
-- **Budget Tier** (`budget`): Flash for description, Flash Lite for transcription/report
+- **Budget Tier** (`budget`): Gemini 1.5 Flash for description, Gemini 2.0 Flash Lite for transcription/report
   - Basic functionality
   - Fastest processing
   - Most cost-effective
@@ -240,3 +240,27 @@ A structured summary including:
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 Created by [Hrishi Olickel](https://twitter.com/hrishioa) • Support offmute by starring our [GitHub repository](https://github.com/southbridgeai/offmute)
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `file` | File | Yes | - | The audio or video file to process (supported formats: .mp4, .webm, .mp3, .wav) |
+| `tier` | String | No | `"business"` | Processing tier to use (`"first"`, `"business"`, `"economy"`, `"budget"`, `"experimental"`) |
+| `screenshotCount` | Number | No | `4` | Number of screenshots to extract from video files |
+| `audioChunkMinutes` | Number | No | `10` | Length of audio chunks in minutes |
+| `generateReport` | Boolean | No | `false` | Whether to generate a structured meeting report |
+| `streamResponse` | Boolean | No | `false` | Whether to stream the response as events |
+| `instructions` | String | No | - | Custom context or instructions to include in AI prompts |
+| `apiKey` | String | No | - | Gemini API key to use for this request (overrides the server's environment variable) |
+
+### cURL Example
+```bash
+curl -X POST http://localhost:6543/api/process \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/meeting.mp4" \
+  -F "tier=business" \
+  -F "generateReport=true" \
+  -F "instructions=Focus on technical details and action items" \
+  -F "apiKey=YOUR_GEMINI_API_KEY"
+```
