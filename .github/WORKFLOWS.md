@@ -148,4 +148,4 @@ Add these to your README.md:
 ### Permission denied errors
 - Workflows use GITHUB_TOKEN with appropriate permissions
 - Check repository settings → Actions → General → Workflow permissions
-- Should be set to "Read and write permissions"
+- Should be set to "Read and write permissions" 
