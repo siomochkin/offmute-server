@@ -1344,8 +1344,7 @@ async function generateContentDescription(
     transcriptionChunkMinutes: audioChunkMinutes,
     outputPath: outputDir,
     showProgress: true,
-    userInstructions: instructions,
-    apiKey
+    userInstructions: instructions
   });
   
   return descriptionResult.finalDescription;
@@ -1376,8 +1375,7 @@ async function generateTechnicalReport(
       model: reportModel,
       outputPath: outputDir,
       reportName: reportFile,
-      showProgress: true,
-      apiKey
+      showProgress: true
     }
   );
   
@@ -1469,8 +1467,7 @@ async function processStreamingFile(req: any, res: any, outputDir: string, jobId
         transcriptionChunkMinutes: req.body.audioChunkMinutes,
         outputPath: outputDir,
         showProgress: true,
-        userInstructions: req.body.instructions,
-        apiKey
+        userInstructions: req.body.instructions
       });
       
       // Then generate transcription
@@ -1481,8 +1478,7 @@ async function processStreamingFile(req: any, res: any, outputDir: string, jobId
           transcriptionModel: modelConfig.transcriptionModel,
                   outputPath: outputDir,
                   showProgress: true,
-          userInstructions: req.body.instructions,
-          apiKey
+          userInstructions: req.body.instructions
         }
       );
       
