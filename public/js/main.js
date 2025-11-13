@@ -74,19 +74,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function validateForm() {
         // Check if file is selected
         const isFileSelected = !!selectedFile;
-        
+
         // Check if at least one processing option is selected
-        const isOptionSelected = contentDescriptionCheckbox.checked || 
-                                 transcriptionCheckbox.checked || 
+        const isOptionSelected = contentDescriptionCheckbox.checked ||
+                                 transcriptionCheckbox.checked ||
                                  meetingReportCheckbox.checked;
-        
-        // Check if API key is provided
-        const isApiKeyProvided = apiKey.value.trim().length > 0;
-        
-        // Update button state - API key is now mandatory
-        processBtn.disabled = !(isFileSelected && isOptionSelected && isApiKeyProvided);
-        
-        return isFileSelected && isOptionSelected && isApiKeyProvided;
+
+        // Update button state - API key is now optional (server may have one configured)
+        processBtn.disabled = !(isFileSelected && isOptionSelected);
+
+        return isFileSelected && isOptionSelected;
     }
 
     // Add event listener for API key field
@@ -185,12 +182,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Ensure API key is provided
-        if (!apiKey.value.trim()) {
-            alert('Please enter your Google Gemini API key.');
-            return;
-        }
-
         isProcessing = true;
         updateUI();
         
@@ -227,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     streamResponse: streamResponse.checked ? 'true' : 'false',
                     
                     // Include API key and instructions if provided
-                    apiKey: apiKey.value.trim(),
+                    apiKey: apiKey.value.trim() || undefined,
                     instructions: instructions.value.trim() || undefined
                 }),
                 signal
@@ -863,10 +854,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateSubmitButtonState() {
         // Enable button only if a file is selected AND at least one option is checked
         const fileSelected = selectedFile !== null;
-        const optionSelected = contentDescriptionCheckbox.checked || 
-                               transcriptionCheckbox.checked || 
+        const optionSelected = contentDescriptionCheckbox.checked ||
+                               transcriptionCheckbox.checked ||
                                meetingReportCheckbox.checked;
-        
+
         processBtn.disabled = !fileSelected || !optionSelected || isProcessing;
     }
 
@@ -887,7 +878,7 @@ document.addEventListener('DOMContentLoaded', () => {
         meetingReportCheckbox.checked = true; // Changed to default checked
         
         // Reset advanced options
-        tierSelect.value = 'business';
+        tierSelect.value = 'pro';
         screenshotCount.value = '4';
         audioChunkMinutes.value = '10';
         instructions.value = '';

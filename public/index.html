@@ -16,9 +16,9 @@
         <section class="card-container">
             <h2>API Key</h2>
             <div class="form-group">
-                <label for="apiKey">Google Gemini API Key (required):</label>
-                <input type="text" id="apiKey" class="form-control" placeholder="Enter your Google Gemini API key" required>
-                <p class="field-note">Your API key is required to process files and will not be stored on our servers. <a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener noreferrer">Get a Gemini API key</a></p>
+                <label for="apiKey">Google Gemini API Key (optional):</label>
+                <input type="text" id="apiKey" class="form-control" placeholder="Enter your Google Gemini API key (optional if configured on server)">
+                <p class="field-note">If the server has an API key configured, this field is optional. Otherwise, provide your own API key. <a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener noreferrer">Get a Gemini API key</a></p>
             </div>
         </section>
 
@@ -62,14 +62,25 @@
                 <h3>Advanced Options</h3>
                 
                 <div class="form-group">
-                    <label for="tierSelect">Processing Tier:</label>
+                    <label for="tierSelect">Processing Model:</label>
                     <select id="tierSelect" class="form-control">
-                        <option value="business" selected>Business (Standard)</option>
-                        <option value="first">First Class (Highest Quality)</option>
-                        <option value="economy">Economy (Faster)</option>
-                        <option value="budget">Budget (Basic)</option>
-                        <option value="experimental">Experimental (Latest Models)</option>
+                        <optgroup label="Gemini 2.5 Models (Recommended)">
+                            <option value="pro" selected>Gemini 2.5 Pro (Highest Quality)</option>
+                            <option value="flash">Gemini 2.5 Flash (Balanced)</option>
+                            <option value="flash-lite">Gemini 2.5 Flash Lite (Fast & Economical)</option>
+                        </optgroup>
+                        <optgroup label="Gemini 2.0 Models (Legacy)">
+                            <option value="first">2.0 Pro (All tasks)</option>
+                            <option value="business">2.0 Pro + Flash (Mixed)</option>
+                            <option value="economy">2.0 Flash (All tasks)</option>
+                            <option value="budget">2.0 Flash + Lite (Mixed)</option>
+                        </optgroup>
+                        <optgroup label="Preview Models (Experimental)">
+                            <option value="experimental">2.5 Pro Preview</option>
+                            <option value="experimentalBudget">2.5 Flash Preview</option>
+                        </optgroup>
                     </select>
+                    <p class="field-note">Gemini 2.5 models offer improved performance and larger context windows</p>
                 </div>
                 
                 <div class="form-group">

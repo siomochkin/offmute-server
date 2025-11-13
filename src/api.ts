@@ -1159,70 +1159,110 @@ export { app };
  */
 function getTierConfig(tier: string) {
   // Validate tier
-  const validTiers = ['first', 'business', 'economy', 'budget', 'experimental'];
+  const validTiers = ['pro', 'flash', 'flash-lite', 'first', 'business', 'economy', 'budget', 'experimental', 'experimentalBudget'];
   if (!validTiers.includes(tier)) {
     throw new Error(`Invalid tier. Must be one of: ${validTiers.join(', ')}`);
   }
 
   // Default configuration
   let config = {
-    screenshotModel: 'gemini-1.5-flash',
-    audioModel: 'gemini-1.5-flash',
-    mergeModel: 'gemini-1.5-flash',
-    transcriptionModel: 'gemini-1.5-flash',
-    reportModel: 'gemini-1.5-flash'
+    screenshotModel: 'gemini-2.5-flash',
+    audioModel: 'gemini-2.5-flash',
+    mergeModel: 'gemini-2.5-flash',
+    transcriptionModel: 'gemini-2.5-flash',
+    reportModel: 'gemini-2.5-flash'
   };
 
   // Select models based on tier
   switch (tier) {
-    case 'first':
-      // Top tier uses Pro models for everything
+    case 'pro':
+      // Gemini 2.5 Pro for everything
       config = {
-        screenshotModel: 'gemini-1.5-pro',
-        audioModel: 'gemini-1.5-pro',
-        mergeModel: 'gemini-1.5-pro',
-        transcriptionModel: 'gemini-1.5-pro',
-        reportModel: 'gemini-1.5-pro'
+        screenshotModel: 'gemini-2.5-pro',
+        audioModel: 'gemini-2.5-pro',
+        mergeModel: 'gemini-2.5-pro',
+        transcriptionModel: 'gemini-2.5-pro',
+        reportModel: 'gemini-2.5-pro'
+      };
+      break;
+    case 'flash':
+      // Gemini 2.5 Flash for everything
+      config = {
+        screenshotModel: 'gemini-2.5-flash',
+        audioModel: 'gemini-2.5-flash',
+        mergeModel: 'gemini-2.5-flash',
+        transcriptionModel: 'gemini-2.5-flash',
+        reportModel: 'gemini-2.5-flash'
+      };
+      break;
+    case 'flash-lite':
+      // Gemini 2.5 Flash Lite for everything
+      config = {
+        screenshotModel: 'gemini-2.5-flash-lite',
+        audioModel: 'gemini-2.5-flash-lite',
+        mergeModel: 'gemini-2.5-flash-lite',
+        transcriptionModel: 'gemini-2.5-flash-lite',
+        reportModel: 'gemini-2.5-flash-lite'
+      };
+      break;
+    case 'first':
+      // Legacy: Gemini 2.0 Pro models for everything
+      config = {
+        screenshotModel: 'gemini-2.0-pro-exp-02-05',
+        audioModel: 'gemini-2.0-pro-exp-02-05',
+        mergeModel: 'gemini-2.0-pro-exp-02-05',
+        transcriptionModel: 'gemini-2.0-pro-exp-02-05',
+        reportModel: 'gemini-2.0-pro-exp-02-05'
       };
       break;
     case 'business':
-      // Business tier uses Pro for description/reports, Flash for transcription
+      // Legacy: Pro for description/reports, Flash for transcription
       config = {
-        screenshotModel: 'gemini-1.5-pro',
-        audioModel: 'gemini-1.5-pro',
-        mergeModel: 'gemini-1.5-pro',
-        transcriptionModel: 'gemini-1.5-flash',
-        reportModel: 'gemini-1.5-pro'
+        screenshotModel: 'gemini-2.0-pro-exp-02-05',
+        audioModel: 'gemini-2.0-pro-exp-02-05',
+        mergeModel: 'gemini-2.0-pro-exp-02-05',
+        transcriptionModel: 'gemini-2.0-flash',
+        reportModel: 'gemini-2.0-pro-exp-02-05'
       };
       break;
     case 'economy':
-      // Economy tier uses Flash models for everything
+      // Legacy: Flash models for everything
       config = {
-        screenshotModel: 'gemini-1.5-flash',
-        audioModel: 'gemini-1.5-flash',
-        mergeModel: 'gemini-1.5-flash',
-        transcriptionModel: 'gemini-1.5-flash',
-        reportModel: 'gemini-1.5-flash'
+        screenshotModel: 'gemini-2.0-flash',
+        audioModel: 'gemini-2.0-flash',
+        mergeModel: 'gemini-2.0-flash',
+        transcriptionModel: 'gemini-2.0-flash',
+        reportModel: 'gemini-2.0-flash'
       };
       break;
     case 'budget':
-      // Budget tier uses Flash for description, Flash Lite for transcription/report
+      // Legacy: Flash for description, Flash Lite for transcription/report
       config = {
-        screenshotModel: 'gemini-1.5-flash',
-        audioModel: 'gemini-1.5-flash',
-        mergeModel: 'gemini-1.5-flash',
-        transcriptionModel: 'gemini-pro',
-        reportModel: 'gemini-pro'
+        screenshotModel: 'gemini-2.0-flash',
+        audioModel: 'gemini-2.0-flash',
+        mergeModel: 'gemini-2.0-flash',
+        transcriptionModel: 'gemini-2.0-flash-lite-preview-02-05',
+        reportModel: 'gemini-2.0-flash-lite-preview-02-05'
       };
       break;
     case 'experimental':
-      // Experimental tier - try new models
+      // Experimental: Gemini 2.5 Pro Preview
       config = {
-        screenshotModel: 'models/gemini-1.5-pro-latest',
-        audioModel: 'models/gemini-1.5-pro-latest',
-        mergeModel: 'models/gemini-1.5-pro-latest',
-        transcriptionModel: 'models/gemini-1.5-pro-latest',
-        reportModel: 'models/gemini-1.5-pro-latest'
+        screenshotModel: 'gemini-2.5-pro-preview-03-25',
+        audioModel: 'gemini-2.5-pro-preview-03-25',
+        mergeModel: 'gemini-2.5-pro-preview-03-25',
+        transcriptionModel: 'gemini-2.5-pro-preview-03-25',
+        reportModel: 'gemini-2.5-pro-preview-03-25'
+      };
+      break;
+    case 'experimentalBudget':
+      // Experimental: Gemini 2.5 Flash Preview
+      config = {
+        screenshotModel: 'gemini-2.5-flash-preview-04-17',
+        audioModel: 'gemini-2.5-flash-preview-04-17',
+        mergeModel: 'gemini-2.5-flash-preview-04-17',
+        transcriptionModel: 'gemini-2.5-flash-preview-04-17',
+        reportModel: 'gemini-2.5-flash-preview-04-17'
       };
       break;
   }
